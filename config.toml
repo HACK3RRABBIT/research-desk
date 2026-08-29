@@ -1,0 +1,54 @@
+# Research Desk configuration
+# Copy and edit. All fields are optional; defaults live in research_desk/config.py.
+
+# Your RSSHub instance. Self-host for reliability: https://docs.rsshub.app/
+rsshub_base_url = "https://rsshub.app"
+
+# Seconds between pipeline cycles when running `research-desk run`.
+poll_interval = 300
+
+# Keep posts in these languages (two-letter ISO codes).
+languages = ["en"]
+
+# RSSHub /twitter/user/:id feeds. Handles without the leading @.
+watched_users = [
+    # "FloodProtocol",
+]
+
+# RSSHub /twitter/list/:id feeds (numeric list ids).
+watched_lists = []
+
+# RSSHub /twitter/keyword/:keyword feeds.
+watched_keywords = [
+    "breaking",
+    "sanctions",
+    "oil",
+    "Iran",
+]
+
+# X API v2 recent-search queries (used only if X_API_BEARER env var is set).
+x_search_queries = []
+
+[preferences]
+boost_themes = [
+    "official announcement",
+    "energy", "oil", "gas", "sanctions", "shipping", "markets",
+    "ai", "x", "tech platform",
+    "geopolitics", "iran", "policy", "security",
+]
+ignore_themes = [
+    "celebrity", "sports", "teaser marketing", "gossip",
+]
+min_importance = 0.0
+
+# Optional LLM backend. Heuristic engine is used unless provider=anthropic
+# AND ANTHROPIC_API_KEY (env or below) is set.
+[llm]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+temperature = 0.0
+max_tokens = 1024
+api_key = ""
+
+# Where state lives (SQLite db + markdown briefs). Relative to cwd.
+data_dir = "data"
