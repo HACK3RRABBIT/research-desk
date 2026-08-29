@@ -72,6 +72,11 @@ def _parse_rss(xml_text: str) -> list[dict]:
     return items
 
 
+# De-dupe the failure log: a permanently-dead route (e.g. a demo feed that 404s
+# offline) would otherwise spam one line per per cycle. We log it once.
+_logged_failed: set[str] = set()
+
+
 def _fetch(url: str, timeout: int = 10, retries: int = 1) -> Optional[str]:
     last_err: Optional[Exception] = None
     for attempt in range(retries + 1):
@@ -85,7 +90,9 @@ def _fetch(url: str, timeout: int = 10, retries: int = 1) -> Optional[str]:
             last_err = exc
         if attempt < retries:
             time.sleep(2 * (attempt + 1))
-    print(f"[rsshub] FAILED after retries: {url} ({last_err})")
+    if url not in _logged_failed:
+        _logged_failed.add(url)
+        print(f"[rsshub] FAILED after retries: {url} ({last_err})")
     return None
 
 
@@ -105,11 +112,16 @@ def _to_post(item: dict, source_feed: str) -> Post:
 def _parse_date(s: str) -> Optional[object]:
     if not s:
         return None
-    from datetime import datetime
+    from datetime import datetime, timezone
     for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%a, %d %b %Y %H:%M:%S %z",
                 "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S.%f%z"):
         try:
-            return datetime.strptime(s, fmt).astimezone()
+            dt = datetime.strptime(s, fmt)
+            # Normalize to UTC so rendering can trust the "UTC" label (the
+            # brief prints times as UTC; never label a local offset as UTC).
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
         except ValueError:
             continue
     return None

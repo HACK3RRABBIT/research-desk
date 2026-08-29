@@ -10,6 +10,8 @@ Run:  uvicorn research_desk.server:app --host 0.0.0.0 --port 8088
 from __future__ import annotations
 
 import html as _html
+import json
+import re
 import threading
 import time
 from http import HTTPStatus
@@ -27,6 +29,8 @@ from starlette.routing import Mount, Route
 
 from .config import Config, load_config
 from .desk import ResearchDesk
+from .i18n import Translator
+from .profile import apply_interests
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "webui" / "dist"
@@ -37,12 +41,16 @@ _desk = ResearchDesk(config=_cfg)
 _scheduler_thread: Optional[threading.Thread] = None
 _scheduler_stop = threading.Event()
 _scheduler_state = {"running": False, "last_cycle": None, "cycles": 0}
+# Guards the desk so a cycle and a rebuild (engine/profile change) never touch
+# the vault concurrently — that was a "database is locked" source.
+_cycle_lock = threading.RLock()
 
 
 def _cycle_once():
-    _desk.cycle()
-    _scheduler_state["last_cycle"] = time.time()
-    _scheduler_state["cycles"] += 1
+    with _cycle_lock:
+        _desk.cycle()
+        _scheduler_state["last_cycle"] = time.time()
+        _scheduler_state["cycles"] += 1
 
 
 def _scheduler_loop(interval: int):
@@ -66,13 +74,14 @@ def _start_scheduler(interval: int | None = None):
 
 
 def _rebuild_desk():
-    """Re-instantiate the desk so a fresh LLM engine is picked up."""
+    """Re-instantiate the desk so a fresh LLM engine (or directive) is picked up."""
     global _desk
-    try:
-        _desk.close()
-    except Exception:
-        pass
-    _desk = ResearchDesk(config=_cfg)
+    with _cycle_lock:
+        try:
+            _desk.close()
+        except Exception:
+            pass
+        _desk = ResearchDesk(config=_cfg)
 
 
 def _llm_payload():
@@ -96,7 +105,7 @@ def _discovery_payload():
             "discovered": _cfg.discovered_users()}
 
 
-app = FastAPI(title="research-desk", version="0.1.1")
+app = FastAPI(title="research-desk", version="0.1.2")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
@@ -297,14 +306,75 @@ class EngineTestReq(BaseModel):
     timeout: int = 30
 
 
+class ProfileReq(BaseModel):
+    """User profile updates. `None` means "leave unchanged"."""
+    language: Optional[str] = None
+    theme: Optional[str] = None
+    timezone: Optional[str] = None
+    interests: Optional[list[str]] = None
+    user_instructions: Optional[str] = None
+    interests_complete: Optional[bool] = None
+
+
+class TranslateReq(BaseModel):
+    texts: list[str]
+    lang: str = "en"
+
+
 # --------------------------------------------------------------------- helpers
-def _brief_payload():
-    brief = _desk.latest_brief()
-    # Re-open latest brief file as structured data.
-    briefs = sorted(_desk.vault.briefs_dir.glob("brief_*.md"))
+def _profile_payload():
+    p = _cfg.profile
     return {
-        "markdown": brief,
-        "generated_at": briefs[-1].stem.replace("brief_", "") if briefs else None,
+        "language": p.get("language", "en"),
+        "theme": p.get("theme", "hermes"),
+        "timezone": p.get("timezone", "Etc/UTC"),
+        "interests": p.get("interests", []),
+        "user_instructions": p.get("user_instructions", ""),
+        "has_instructions": bool((p.get("user_instructions") or "").strip()),
+        "interests_complete": bool(p.get("interests_complete")),
+    }
+
+
+def _t_item(d: dict, tx):
+    """Structured brief item, with text fields machine-translated when `tx`."""
+    return {
+        "headline": tx(d.get("headline", "")) if tx else d.get("headline", ""),
+        "quote": tx(d.get("quote") or d.get("headline", "")) if tx
+                 else (d.get("quote") or d.get("headline", "") or ""),
+        "why": tx(d.get("why_it_matters", "")) if tx
+               else d.get("why_it_matters", ""),
+        "why_it_matters": tx(d.get("why_it_matters", "")) if tx
+                          else d.get("why_it_matters", ""),
+        "confidence": d.get("confidence", "unconfirmed"),
+        "url": d.get("primary_url", ""),
+        "support": d.get("supporting_accounts", []),
+        "ts": d.get("timestamp", ""),   # ISO; the UI formats it in the user's tz
+    }
+
+
+def _brief_payload(lang: str = "en"):
+    md = _desk.latest_brief()
+    record = _desk.vault.latest_brief_record()
+    generated_at = record.get("generated_at") if record else None
+    if not record:
+        items = {"main": [], "watch": [], "noise": []}
+    else:
+        translator = Translator(_desk.vault) if lang not in ("", "en") else None
+        tx = (lambda s: translator.one(s, lang)) if translator else None
+        items = {
+            "main": [_t_item(i, tx) for i in record.get("main_brief", [])],
+            "watch": [_t_item(i, tx) for i in record.get("watchlist", [])],
+            "noise": [{
+                "text": (tx(n.get("text", "")) if tx else n.get("text", "")),
+                "reason": (tx(n.get("reason", "")) if tx
+                           else n.get("reason", "")),
+            } for n in record.get("noise_log", [])],
+        }
+    return {
+        "markdown": md,
+        "generated_at": generated_at,
+        "items": items,
+        "lang": lang,
     }
 
 
@@ -346,31 +416,36 @@ def _stats_payload():
 
 # --------------------------------------------------------------------- routes
 @app.get("/api/state")
-def get_state():
-    return {
-        "engine": _desk.engine,
-        "scheduler": _scheduler_state,
-        "config": {
-            "rsshub_base_url": _desk.config.rsshub_base_url,
-            "poll_interval": _desk.config.poll_interval,
-            "languages": _desk.config.languages,
-            "watched_users": _desk.config.watched_users,
-            "watched_keywords": _desk.config.watched_keywords,
-        },
-        "agents": _agents_payload(),
-        "sources": _sources_payload(),
-        "themes": _themes_payload(),
-        "stats": _stats_payload(),
-        "brief": _brief_payload(),
-        "llm": _llm_payload(),
-        "discovery": _discovery_payload(),
-    }
+def get_state(lang: str = Query(default="en")):
+    # Hold the desk lock the whole read so an in-flight cycle/rebuild can't
+    # close the vault underneath us ("Cannot operate on a closed database").
+    with _cycle_lock:
+        return {
+            "engine": _desk.engine,
+            "scheduler": _scheduler_state,
+            "config": {
+                "rsshub_base_url": _desk.config.rsshub_base_url,
+                "poll_interval": _desk.config.poll_interval,
+                "languages": _desk.config.languages,
+                "watched_users": _desk.config.watched_users,
+                "watched_keywords": _desk.config.watched_keywords,
+            },
+            "agents": _agents_payload(),
+            "sources": _sources_payload(),
+            "themes": _themes_payload(),
+            "stats": _stats_payload(),
+            "brief": _brief_payload(lang),
+            "llm": _llm_payload(),
+            "discovery": _discovery_payload(),
+            "profile": _profile_payload(),
+        }
 
 
 @app.post("/api/run")
 def run_cycle():
-    _cycle_once()
-    return {"ok": True, "state": _scheduler_state, "brief": _brief_payload()}
+    with _cycle_lock:
+        _cycle_once()
+        return {"ok": True, "state": _scheduler_state, "brief": _brief_payload()}
 
 
 @app.post("/api/scheduler/start")
@@ -391,7 +466,8 @@ def post_feedback(req: FeedbackReq):
     if req.label not in {"useful", "not_useful", "rumor", "too_local",
                           "too_political", "want_more"}:
         raise HTTPException(400, "invalid label")
-    _desk.feedback(req.claim_id, req.label)
+    with _cycle_lock:
+        _desk.feedback(req.claim_id, req.label)
     return {"ok": True}
 
 
@@ -476,13 +552,49 @@ def test_engine(req: EngineTestReq):
                 json={"model": req.model,
                       "messages": [{"role": "user",
                                     "content": "Reply with exactly: OK"}],
-                      "max_tokens": req.max_tokens, "temperature": 0.0},
+                      "max_tokens": req.max_tokens, "temperature": 0.0,
+                      "stream": False},
                 timeout=req.timeout)
             r.raise_for_status()
-            body = r.json()
+            # Some OpenAI-compatible proxies stream by default (SSE) even when
+            # asked not to, so parse both shapes. (Logic mirrors reasoning.py.)
+            ctype = (r.headers.get("content-type") or "").lower()
+            if "text/event-stream" in ctype:
+                parts, found = [], False
+                for line in (r.text or "").splitlines():
+                    line = line.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    payload = line[len("data:"):].strip()
+                    if payload == "[DONE]":
+                        continue
+                    try:
+                        obj = json.loads(payload)
+                    except Exception:
+                        continue
+                    for ch in obj.get("choices", []):
+                        d = ch.get("delta") or {}
+                        if d.get("content"):
+                            parts.append(d["content"])
+                body = {"choices": [{"message": {"content": "".join(parts)}}]} \
+                    if parts else {}
+            else:
+                body = r.json()
             if "choices" not in body:
                 return {"ok": False, "message": "Unexpected response shape."}
-            msg = body["choices"][0]["message"]["content"].strip()
+            # The model may wrap the answer in prose or leave `content` empty
+            # (reasoning-heavy proxies). Harvest a JSON/text block and also
+            # accept a bare "OK" reply so the connectivity check still passes.
+            msg_obj = body["choices"][0]["message"]
+            msg = (msg_obj.get("content") or "").strip()
+            if not msg:
+                msg = (msg_obj.get("reasoning_content")
+                       or msg_obj.get("reasoning") or "").strip()
+            # Strip a markdown code fence if the model added one.
+            fenced = re.search(r"```(?:json)?\s*(.*?)```", msg, re.S)
+            if fenced:
+                msg = fenced.group(1).strip()
+            msg = msg.strip() or "(empty reply)"
             return {"ok": True, "message": f"Connected — model replied “{msg[:60]}”"}
         elif req.provider == "anthropic":
             import anthropic
@@ -497,6 +609,39 @@ def test_engine(req: EngineTestReq):
             return {"ok": True, "message": "Heuristic engine is always available."}
     except Exception as exc:  # noqa: BLE001 - surfaced to the UI as the message
         return {"ok": False, "message": str(exc)}
+
+
+@app.post("/api/profile")
+def save_profile(req: ProfileReq):
+    """Save user profile (language/theme/timezone/interests/instructions).
+
+    Applying interests also merges the tags into boost_themes and (for a few
+    high-signal ones) watched keywords, and marks onboarding complete.
+    """
+    if req.interests is not None:
+        apply_interests(_cfg, req.interests)
+    if req.user_instructions is not None:
+        _cfg.set_profile(user_instructions=req.user_instructions.strip())
+    if req.language is not None:
+        _cfg.set_profile(language=req.language)
+    if req.theme is not None:
+        _cfg.set_profile(theme=req.theme)
+    if req.timezone is not None:
+        _cfg.set_profile(timezone=req.timezone)
+    if req.interests_complete is not None:
+        _cfg.set_profile(interests_complete=req.interests_complete)
+    _cfg.save()
+    # The directive feeds the reasoning SYSTEM, so pick up a fresh engine.
+    _rebuild_desk()
+    return {"ok": True, "profile": _profile_payload()}
+
+
+@app.post("/api/translate")
+def translate(req: TranslateReq):
+    """Batch-translate strings via the headless free endpoint (cached)."""
+    with _cycle_lock:
+        translator = Translator(_desk.vault)
+        return {"ok": True, "translations": translator.translate(req.texts, req.lang)}
 
 # --------------------------------------------------------------------- static
 def _allowed_methods(path: str) -> set[str]:

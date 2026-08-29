@@ -63,6 +63,7 @@ class ChiefOfStaffAgent:
             timestamp=post.timestamp if post else None,
             importance=c.importance,
             source_feed=post.source_feed if post else "",
+            quote=(post.text if post else ""),   # verbatim, untruncated
         )
 
 

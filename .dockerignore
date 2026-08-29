@@ -1,0 +1,23 @@
+# Local state — never baked into the image; persisted via the volume.
+data/
+config.local.toml
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Frontend build / deps — rebuilt inside the image.
+webui/node_modules/
+webui/dist/
+
+# Git / CI / editor noise.
+.git/
+.github/
+.idea/
+.vscode/
+*.md~
+
+# Local logs.
+*.log
+rd.log
+rd_server.log

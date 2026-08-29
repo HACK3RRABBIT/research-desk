@@ -4,11 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A local, real-time **X / Twitter news intelligence system** (v0.1.1). A multi-agent
+A local, real-time **X / Twitter news intelligence system** (v0.1.2). A multi-agent
 "research desk" that ingests X posts via RSSHub (+ optional X API search), filters
 rumors, ranks importance, and writes a markdown brief. Source of truth is X only.
 All agents use an always-on, OpenAI-compatible AI engine configured live from the
 built-in Hermes-styled web UI; the desk serves a React dashboard at `0.0.0.0:8088`.
+The web UI is **localized (English / فارسی, RTL with Vazirmatn)**, **multi-theme**
+(Hermes default + Night/Sea/Ivory), requires first-run **interest onboarding** plus
+a free-text **manual directive**, renders **verbatim post text with accurate links**,
+and shows **timezone-aware relative timestamps**. News content auto-translates
+headlessly (free browser-style endpoint, no API key) when Persian is active.
 
 ## Commands
 
@@ -32,13 +37,18 @@ python -m pytest tests/ -q                       # offline pipeline tests
   `config.local.toml`; `has_llm()` / `needs_setup()` gate the always-on engine.
 - `research_desk/server.py` — FastAPI app serving the Hermes webui (`webui/dist`)
   and the JSON API: engine config, run cycle, scheduler start/stop, feedback,
-  watched accounts/keywords, agents/sources/themes. Secrets are masked in
+  watched accounts/keywords, agents/sources/themes, plus `/api/profile` and
+  `/api/translate` for the localized/personalized UI. Secrets are masked in
   `/api/state` (never the raw key).
-- `research_desk/schema.py` — dataclasses passed between agents: `Post`, `Claim`,
-  `SourceNode`, `Brief`, `Feedback`, enums `SourceTier` / `Confidence`.
-- `research_desk/vault.py` — **single shared store** (SQLite `data/db/vault.db` +
-  markdown briefs in `data/briefs/`). All agents read/write this. Key methods:
-  `pending_claims()`, `all_claims()`, `get_claim()`, `get_source()`, `upsert_*`.
+- `research_desk/i18n.py` — headless translation (`Translator`). Hits the free
+  browser-style Google web endpoint (`clients5.google.com/translate_a/t`,
+  `client=dict-chrome-ex`) with no API key; caches by `sha1(text):lang` in the
+  vault; returns the original string on any failure (never breaks the desk).
+- `research_desk/profile.py` — `INTEREST_CATEGORIES` taxonomy + `apply_interests()`
+  (merges selected tags into `preferences.boost_themes` and a few into
+  `watched_keywords`, marks onboarding complete). The `profile` config block
+  holds language/theme/timezone/interests/`user_instructions`/`interests_complete`;
+  `user_instructions` is injected into the reasoning `SYSTEM` message.
 - `research_desk/reasoning.py` — **the engine seam.** `Reasoning` ABC with
   `OpenAICompatibleReasoning` (default, plain `requests` to any OpenAI-compatible
   `/chat/completions`), `AnthropicReasoning` (auto-activates when
@@ -47,6 +57,11 @@ python -m pytest tests/ -q                       # offline pipeline tests
   `config.has_llm()`. Agents call `reasoning.*` for qualitative judgment and
   NEVER hard-code it — keep that boundary when editing. Switching engines touches
   only `reasoning.py` + `config.llm`, never the agents.
+- `research_desk/schema.py` — dataclasses passed between agents: `Post`, `Claim`,
+  `SourceNode`, `Brief`, `Feedback`, enums `SourceTier` / `Confidence`.
+- `research_desk/vault.py` — **single shared store** (SQLite `data/db/vault.db` +
+  markdown briefs in `data/briefs/`). All agents read/write this. Key methods:
+  `pending_claims()`, `all_claims()`, `get_claim()`, `get_source()`, `upsert_*`.
 - `research_desk/ingest/rsshub.py` — RSSHub `/twitter/user|list|keyword` adapters,
   Atom/RSS parsing, per-feed retry (failures are logged, not raised).
 - `research_desk/ingest/x_search.py` — optional X API v2 recent-search, silent
@@ -71,3 +86,19 @@ chief_of_staff`. Learning loop runs on demand via `feedback`.
   is expected. Real feeds must be supplied by the user.
 - Switching heuristic↔LLM touches only `reasoning.py` + `config.llm`; do not push
   model logic into the agents.
+- First run gates on **interests onboarding** (`profile.interests_complete`). The
+  user's selected tags merge into `preferences.boost_themes`; a few high-signal
+  ones also become `watched_keywords`. `user_instructions` is injected into the
+  LLM `SYSTEM` message (offline heuristic ignores it).
+- `BriefItem.quote` carries the **exact verbatim post text**; `headline` stays for
+  the title. Never truncate/paraphrase `quote` — the whole point is fidelity. The
+  primary-link accuracy depends on `post.raw_url` from RSSHub.
+- Timestamps are stored in **UTC**; the UI renders relative "X min ago" + absolute
+  times in the user's configured `profile.timezone` (client-side, via `Intl`).
+  `ingest/rsshub.py::_parse_date` normalizes to UTC so the brief's `UTC` label is
+  truthful.
+- Persian auto-translation is **best-effort**: `i18n.py` hits a free endpoint and
+  returns the original string on any failure, so localization never breaks the
+  desk. Translations are cached in the vault by `sha1(text):lang`.
+- Vault runs SQLite in **WAL** and the server serializes cycles/rebuilds with a
+  lock, so an engine or profile change can't cause "database is locked".

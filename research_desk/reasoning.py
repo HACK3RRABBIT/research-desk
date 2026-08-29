@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 from abc import ABC, abstractmethod
+from typing import Optional
 from datetime import datetime
 from typing import Optional
 
@@ -60,6 +61,87 @@ _IGNORE_THEMES = ["celebrity", "sports", "gossip", "drama", "teaser marketing"]
 def _theme_hits(text: str, themes: list[str]) -> list[str]:
     low = text.lower()
     return [t for t in themes if t in low]
+
+
+# Some OpenAI-compatible proxies (esp. free "deep-think" gateways) spend the
+# token budget on chain-of-thought (reasoning_content) and only emit an answer
+# inside it, leaving `content` empty when max_tokens is small. We harvest a
+# JSON object from whichever field actually carries it.
+def _extract_json_text(msg: dict) -> str:
+    """Return JSON-bearing text from a message, tolerant of surrounding prose,
+    markdown code fences, and reasoning-heavy proxies that leave `content`
+    empty. Returns the first balanced `{...}` (or `[...]`) block."""
+    raw = (msg.get("content") or "").strip()
+    if not raw:
+        raw = (msg.get("reasoning_content") or msg.get("reasoning") or "").strip()
+    if not raw:
+        return ""
+    # Strip a markdown code fence if present.
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", raw, re.S)
+    if fenced:
+        raw = fenced.group(1).strip()
+    # Find the outermost balanced JSON object (or array).
+    return _first_json_block(raw)
+
+
+def _first_json_block(text: str):
+    """Extract the first balanced `{...}` or `[...]` substring from `text`."""
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start = text.find(opener)
+        if start == -1:
+            continue
+        depth = 0
+        in_str = False
+        esc = False
+        for i in range(start, len(text)):
+            c = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+                continue
+            if c == '"':
+                in_str = True
+            elif c == opener:
+                depth += 1
+            elif c == closer:
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+    return ""
+
+
+def _parse_completion(resp) -> dict:
+    """Turn a chat/completions response into a JSON dict, tolerating both the
+    normal JSON body and an SSE stream (some OpenAI-compatible proxies stream
+    by default and ignore ``stream: false``)."""
+    ctype = (resp.headers.get("content-type") or "").lower()
+    if "text/event-stream" not in ctype:
+        try:
+            return resp.json()
+        except Exception:
+            pass
+    # SSE fallback: accumulate delta.content from each `data:` chunk.
+    parts: list[str] = []
+    for line in (resp.text or "").splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[len("data:"):].strip()
+        if payload == "[DONE]":
+            continue
+        try:
+            obj = json.loads(payload)
+        except Exception:
+            continue
+        for ch in obj.get("choices", []):
+            d = ch.get("delta") or {}
+            if d.get("content"):
+                parts.append(d["content"])
+    return {"choices": [{"message": {"content": "".join(parts)}}]} if parts else {}
 
 
 class Reasoning(ABC):
@@ -226,6 +308,24 @@ class LLMReasoning(Reasoning):
     def __init__(self, config: Config):
         self.config = config
         self.heuristic = HeuristicReasoning(config)  # fallback on any error
+        # Personalise the judgment core with the user's manual directive so the
+        # model biases toward what this user cares about (see profile).
+        self.SYSTEM = self._system_message(config)
+
+    @staticmethod
+    def _system_message(config: Config) -> str:
+        base = LLMReasoning.SYSTEM
+        directive = (config.profile.get("user_instructions") or "").strip()
+        if not directive:
+            return base
+        return (
+            base
+            + "\n\n"
+            + "The user set a personal directive. Bias your judgment toward "
+            + "the subjects and sources this user cares about; still keep the "
+            + "rules above (no rumors, no fame-weighting).\n"
+            + "DIRECTIVE: " + directive
+        )
 
     @abstractmethod
     def _ask(self, user_prompt: str) -> Optional[dict]:
@@ -319,12 +419,21 @@ class OpenAICompatibleReasoning(LLMReasoning):
                 ],
                 "temperature": float(self.config.llm.get("temperature", 0.0)),
                 "max_tokens": int(self.config.llm.get("max_tokens", 1024)),
+                # Ask for a single JSON response. Some proxies still stream, so
+                # _parse_completion tolerates SSE as well (see above).
+                "stream": False,
             }
             resp = requests.post(
                 f"{base}/chat/completions", headers=headers, json=payload,
                 timeout=float(self.config.llm.get("timeout", 60)))
             resp.raise_for_status()
-            text = resp.json()["choices"][0]["message"]["content"]
+            data = _parse_completion(resp)
+            msg = data["choices"][0]["message"]
+            # `content` may be empty on reasoning-heavy proxies; fall back to
+            # scraping a JSON block out of reasoning_content (see _extract_json_text).
+            text = _extract_json_text(msg)
+            if not text:
+                return None
             return json.loads(text)
         except Exception as exc:  # pragma: no cover - network/parse
             print(f"[reasoning] OpenAI-compatible call failed, using heuristic: "

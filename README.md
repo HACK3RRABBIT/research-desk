@@ -57,7 +57,21 @@ heuristics rather than crashing the cycle. It is also self-learning — feedback
 re-ranks importance over time, and new accounts are discovered from deep post
 analysis (importance is judged by substance, never by fame or a blue tick).
 
-## Setup
+## Quick start (Docker) — recommended
+
+One command builds the image and launches the whole desk (backend + web UI):
+
+```bash
+docker compose up -d
+```
+
+Open `http://localhost:8088` → the AI Engine gate asks for your provider, base
+URL, API key, and model name. Save it; the desk starts polling immediately.
+Runtime state (engine config, your interests, learned sources, briefs) is stored
+in the `research-desk-data` volume, so it survives restarts. To stop:
+`docker compose down` (data is kept); `docker compose down -v` also deletes it.
+
+## Setup (from source)
 
 ```bash
 uv venv .venv && source .venv/bin/activate
@@ -114,6 +128,21 @@ themes you want more of — so the next brief adapts to you.
 
 ## Milestone status
 
+**v0.1.2 — localization, themes, personalization, fidelity.** The web UI gained
+a full **Persian (فارسی) version**: Vazirmatn font, right-aligned RTL layout, and
+news content **auto-translated headlessly** — the desk calls the same free Google
+web endpoint a normal browser's Translate uses (`clients5.google.com/translate_a/t`,
+no API key, no paid quota), cached in the vault so Persian renders are stable. A
+**multi-theme** system (Hermes stays default) adds Night / Sea / Ivory skins,
+switchable from the topbar or Settings. **First-run onboarding** now requires the
+user to pick from a long categorized interest list, plus a free-text **manual
+directive** that is injected into the judgment core so it personalises verdicts
+and actively searches for those subjects. Timestamps are shown as **relative
+times ("6 min ago") and absolute times in the user's chosen timezone**. The brief
+now renders the **exact published post text verbatim** with an **accurate link to
+the original X post**. (Fixes: RSSHub dates are normalized to UTC so the brief's
+`UTC` label is truthful; SQLite runs in WAL with a cycle/rebuild lock so engine
+and profile changes can't trigger "database is locked".)
 **v0.1.1 — always-on intelligence + Hermes web UI.** Every agent uses AI via an
 **OpenAI-compatible** engine configured live from the browser (provider, base
 URL, API key, model name). The whole web UI is redesigned in the **Hermes**

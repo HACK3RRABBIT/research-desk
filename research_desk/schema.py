@@ -92,6 +92,7 @@ class BriefItem:
     timestamp: Optional[datetime]
     importance: float = 0.0
     source_feed: str = ""
+    quote: str = ""              # the EXACT verbatim post text, as published
 
 
 @dataclass

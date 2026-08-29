@@ -77,6 +77,12 @@ CREATE TABLE IF NOT EXISTS briefs (
     generated_at TEXT,
     payload TEXT
 );
+CREATE TABLE IF NOT EXISTS translations (
+    key TEXT,
+    lang TEXT,
+    value TEXT,
+    PRIMARY KEY (key, lang)
+);
 """
 
 
@@ -104,6 +110,12 @@ class Vault:
         self.briefs_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        # WAL lets the scheduler thread write while the webui reads, and
+        # busy_timeout makes concurrent cycles/rebuilds back off rather than
+        # raising "database is locked". (The desk swaps the vault on engine or
+        # profile changes, so two connections can touch the same file briefly.)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         with self._lock:
             self._conn.executescript(_SCHEMA)
         self._conn.commit()
@@ -233,7 +245,27 @@ class Vault:
         return [Feedback(claim_id=r[0], label=r[1], at=_from_iso(r[2]))
                 for r in cur.fetchall()]
 
+    # -- translations (headless i18n cache) ---------------------------------
+    def get_translation(self, key: str, lang: str) -> Optional[str]:
+        cur = self._query(
+            "SELECT value FROM translations WHERE key=? AND lang=?",
+            (key, lang))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    def put_translation(self, key: str, lang: str, value: str) -> None:
+        self._exec(
+            "INSERT OR REPLACE INTO translations VALUES (?,?,?)",
+            (key, lang, value))
+
     # -- briefs -------------------------------------------------------------
+    def latest_brief_record(self) -> Optional[dict]:
+        """Most recent brief as a plain dict (structured items, not markdown)."""
+        cur = self._query(
+            "SELECT payload FROM briefs ORDER BY id DESC LIMIT 1")
+        row = cur.fetchone()
+        return json.loads(row[0]) if row else None
+
     def save_brief(self, brief: Brief) -> Path:
         self._exec("INSERT INTO briefs (generated_at,payload) VALUES (?,?)",
                    (_iso(brief.generated_at), _brief_to_json(brief)))
@@ -245,12 +277,20 @@ class Vault:
         self._conn.close()
 
 
+def _utc_str(dt: datetime) -> str:
+    """Format a timestamp as UTC (never trust its own tzinfo label)."""
+    if dt.tzinfo is None:
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
 def _brief_to_json(brief: Brief) -> str:
     def item(i):
         return {"headline": i.headline, "why_it_matters": i.why_it_matters,
                 "confidence": i.confidence.value, "primary_url": i.primary_url,
                 "supporting_accounts": i.supporting_accounts,
-                "timestamp": _iso(i.timestamp), "importance": i.importance}
+                "timestamp": _iso(i.timestamp), "importance": i.importance,
+                "quote": i.quote}
     return json.dumps({
         "generated_at": _iso(brief.generated_at),
         "main_brief": [item(i) for i in brief.main_brief],
@@ -266,13 +306,15 @@ def render_brief_markdown(brief: Brief) -> str:
     if not brief.main_brief:
         lines.append("_Nothing cleared the bar this cycle._")
     for i, item in enumerate(brief.main_brief, 1):
+        time_str = _utc_str(item.timestamp) if item.timestamp else "n/a"
         lines += [
             f"### {i}. {item.headline}",
+            f"- **Text:** {item.quote or item.headline}",
             f"- **Why it matters:** {item.why_it_matters}",
             f"- **Confidence:** {item.confidence.value}",
             f"- **Primary post:** {item.primary_url or 'n/a'}",
             f"- **Supporting accounts:** {', '.join(item.supporting_accounts) or '—'}",
-            f"- **Time:** {(item.timestamp.strftime('%Y-%m-%d %H:%M UTC') if item.timestamp else 'n/a')}",
+            f"- **Time:** {time_str}",
             "",
         ]
     lines.append("## WATCHLIST — possibly important, unconfirmed")

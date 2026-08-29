@@ -1,0 +1,23 @@
+# One command gets you the whole desk: `docker compose up -d`
+# Then open http://localhost:8088 and finish first-run setup in the UI.
+services:
+  research-desk:
+    build: .
+    image: research-desk:0.1.3
+    container_name: research-desk
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    volumes:
+      # Persists the SQLite vault, briefs, learned sources, profile, and the
+      # gitignored config.local.toml (LLM creds + interests) across restarts.
+      - research-desk-data:/app/data
+    # Optional: point the engine at an env-provided key instead of typing it in
+    # the UI (provider/base_url/model are still set from the UI or config.toml).
+    # environment:
+    #   - OPENAI_API_KEY=sk-...
+    #   - ANTHROPIC_API_KEY=sk-...
+
+volumes:
+  research-desk-data:
+    driver: local

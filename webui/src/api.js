@@ -11,7 +11,7 @@ async function req(method, path, body) {
 }
 
 export const api = {
-  state: () => req("GET", "/api/state"),
+  state: (lang) => req("GET", "/api/state" + (lang ? `?lang=${lang}` : "")),
   run: () => req("POST", "/api/run"),
   schedulerStart: (interval) =>
     req("POST", "/api/scheduler/start?interval=" + interval),
@@ -25,4 +25,6 @@ export const api = {
   engineSave: (cfg) => req("POST", "/api/engine", cfg),
   engineReset: () => req("POST", "/api/engine/reset"),
   engineTest: (cfg) => req("POST", "/api/engine/test", cfg),
+  profileSave: (payload) => req("POST", "/api/profile", payload),
+  translate: (texts, lang) => req("POST", "/api/translate", { texts, lang }),
 };

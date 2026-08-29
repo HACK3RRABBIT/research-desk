@@ -93,6 +93,18 @@ CONFIG_DEFAULTS: dict[str, Any] = {
         "autostart": True,
     },
 
+    # User profile: the personalization + localization knobs the desk is tuned
+    # to. Persisted to config.local.toml. `interests_complete` gates the first-run
+    # onboarding: the user picks interests before they can use the desk.
+    "profile": {
+        "language": "en",             # "en" | "fa"
+        "theme": "hermes",            # hermes | night | sea | ivory
+        "timezone": "Etc/UTC",        # IANA name, used to render "X min ago"
+        "interests": [],              # selected tags from profile.INTEREST_TAXONOMY
+        "user_instructions": "",      # free-text directive the user gives the AI
+        "interests_complete": False,  # False -> show the onboarding gate
+    },
+
     # Where we store state.
     "data_dir": "data",
 }
@@ -151,6 +163,21 @@ class Config:
     @property
     def scheduler(self) -> dict[str, Any]:
         return self.raw["scheduler"]
+
+    @property
+    def profile(self) -> dict[str, Any]:
+        return self.raw["profile"]
+
+    def set_profile(self, **kw: Any) -> "Config":
+        """Apply a partial update to the user profile block (used by the webui)."""
+        for k, v in kw.items():
+            if v is not None:
+                self.profile[k] = v
+        return self
+
+    def needs_onboarding(self) -> bool:
+        """True on first run when the user hasn't picked interests yet."""
+        return not bool(self.profile.get("interests_complete"))
 
     # ---- LLM readiness ---------------------------------------------------
     @property
@@ -226,6 +253,8 @@ class Config:
     def save(self, path: Path | None = None) -> None:
         import tomli_w  # optional dep; only needed when persisting edits
         path = path or self.local_path
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
         # Persist only the runtime-managed keys (never the whole snapshot, so a
         # user's committed config.toml keeps authority for preferences, etc.).
         snapshot = {
@@ -233,6 +262,7 @@ class Config:
             "watched_users": self.raw["watched_users"],
             "watched_keywords": self.raw["watched_keywords"],
             "discovered_users": self.raw.get("discovered_users", []),
+            "profile": self.profile,
         }
         path.write_text(tomli_w.dumps(snapshot), encoding="utf-8")
 
@@ -241,20 +271,42 @@ def load_config(path: str | Path | None = None) -> Config:
     """Merge config.toml, then gitignored config.local.toml, over defaults.
 
     config.local.toml holds runtime state (LLM credentials, discovered/watched
-    accounts) so secrets and auto-learned sources never touch git.
+    accounts, profile) so secrets and auto-learned sources never touch git.
+
+    The local file is *read* from next to config.toml (backward compatible), but
+    *written* under ``data_dir`` — which is the path operators mount as a
+    volume (e.g. in Docker). That keeps user setup (engine, interests, learned
+    sources) durable across container restarts, instead of vanishing with the
+    image's writable layer.
     """
     base = Path(path) if path else Path("config.toml")
-    local = base.with_name(f"{base.stem}.local.toml") if base.suffix == ".toml" \
-        else Path(str(base) + ".local")
+    legacy_local = base.with_name(f"{base.stem}.local.toml") \
+        if base.suffix == ".toml" else Path(str(base) + ".local")
 
     raw = dict(CONFIG_DEFAULTS)
-    for p in (base, local):
-        if p.exists():
-            with p.open("rb") as fh:
-                _deep_update(raw, tomllib.load(fh))
+    # Read legacy local file (alongside config.toml) if it exists.
+    if legacy_local.exists():
+        with legacy_local.open("rb") as fh:
+            _deep_update(raw, tomllib.load(fh))
+
     cfg = Config(raw=raw)
-    # Track the resolved local path so save() lands in the right place.
-    cfg.local_path = local
+    # Write path: <data_dir>/config.local.toml. data_dir defaults to "data".
+    data_dir = Path(raw.get("data_dir", "data"))
+    data_dir.mkdir(parents=True, exist_ok=True)
+    cfg.local_path = data_dir / "config.local.toml"
+    # If we read a legacy file but the volume copy doesn't exist yet, seed it so
+    # an existing local setup survives the first run in a container.
+    if legacy_local.exists() and not cfg.local_path.exists():
+        try:
+            cfg.local_path.write_text(
+                legacy_local.read_text(encoding="utf-8"), encoding="utf-8")
+        except Exception:
+            pass
+    # If a fresh volume copy exists, re-merge it so it wins over the legacy read.
+    if cfg.local_path.exists():
+        with cfg.local_path.open("rb") as fh:
+            _deep_update(raw, tomllib.load(fh))
+        cfg.raw = raw
     return cfg
 
 
