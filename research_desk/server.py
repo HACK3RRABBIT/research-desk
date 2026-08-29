@@ -9,15 +9,21 @@ Run:  uvicorn research_desk.server:app --host 0.0.0.0 --port 8088
 """
 from __future__ import annotations
 
+import html as _html
 import threading
 import time
+from http import HTTPStatus
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.routing import Mount, Route
 
 from .config import Config, load_config
 from .desk import ResearchDesk
@@ -95,6 +101,164 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+
+# ------------------------------------------------------------------ brand / seo
+# robots.txt, sitemap and webmanifest are served from code (not the static
+# build) so they exist even before webui/dist is produced, and so they can't
+# drift out of sync with the API. The error pages below are stamped with the
+# same Hermes tokens as the SPA.
+
+ROBOTS_TXT = "User-agent: *\nDisallow:\nSitemap: /sitemap.xml\n"
+
+SITEMAP_XML = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    '  <url><loc>/</loc><changefreq>hourly</changefreq></url>\n'
+    "</urlset>\n"
+)
+
+SITE_MANIFEST = (
+    "{"
+    '"name":"Research Desk","short_name":"Research Desk",'
+    '"description":"An always-on X/Twitter news intelligence desk.",'
+    '"start_url":"/","scope":"/","display":"standalone",'
+    '"background_color":"#0000f2","theme_color":"#0000f2",'
+    '"icons":['
+    '{"src":"/logo-192.png","sizes":"192x192","type":"image/png","purpose":"any"},'
+    '{"src":"/logo-512.png","sizes":"512x512","type":"image/png","purpose":"any"},'
+    '{"src":"/logo.svg","sizes":"any","type":"image/svg+xml"}'
+    "]}"
+)
+
+
+# ------------------------------------------------------------- error pages
+# A self-contained, JS-free Hermes-skinned error page. Rendered server-side so
+# it always renders even when the SPA bundle can't load, and so API 404/5xx can
+# stay JSON while browser-facing failures get the branded page.
+
+_ERROR_CSS = """
+@font-face{font-family:"Sigurd";src:url("/fonts/sigurd.woff2") format("woff2");font-weight:100 800;font-style:normal;font-display:swap}
+@font-face{font-family:"CourierPrime";src:url("/fonts/courierprime.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
+:root{--blue:#0000F2;--fg:#F5F5F5;--fg-dim:rgba(245,245,245,.62);--accent:#EDFF45;--font-display:"Sigurd","Times New Roman",serif;--font-mono:"CourierPrime","Courier New",monospace;--noise:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{min-height:100vh;display:grid;place-items:center;background:var(--blue);color:var(--fg);font-family:var(--font-display);font-weight:300;letter-spacing:.03em;text-transform:uppercase;-webkit-font-smoothing:antialiased;text-align:center;position:relative;overflow:hidden;padding:24px}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.05;background-image:var(--noise)}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(120% 90% at 50% 8%,transparent 55%,rgba(0,0,0,.30))}
+.card{position:relative;z-index:1;max-width:680px}
+.eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.32em;color:var(--accent)}
+.eyebrow .sep{color:var(--fg-dim)}
+.num{font-size:clamp(104px,24vw,220px);font-weight:300;line-height:.86;letter-spacing:.02em;margin:.16em 0 0}
+.rule{width:64px;height:3px;background:var(--accent);margin:22px auto 28px}
+h1{font-size:clamp(20px,4vw,32px);font-weight:300;letter-spacing:.04em}
+.msg{font-family:var(--font-mono);font-size:13px;letter-spacing:.08em;line-height:1.7;color:var(--fg-dim);max-width:520px;margin:14px auto 0}
+.btn{display:inline-block;margin-top:38px;padding:16px 30px;background:var(--accent);color:#0000F2;font-family:var(--font-mono);font-size:13px;letter-spacing:.14em;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.btn:hover{background:#fff}
+@media (prefers-reduced-motion:no-preference){.card{animation:rise .5s ease-out}.rule{animation:grow .6s ease-out;transform-origin:center}@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}@keyframes grow{from{width:0}to{width:64px}}}
+"""
+
+# Specific, plain-voice copy per status — never vague, never apologetic.
+_ERROR_COPY = {
+    400: ("Bad request", "The request wasn't well-formed. Check what you sent and try again."),
+    401: ("Unauthorized", "You're not signed in. Authenticate to reach this route."),
+    403: ("Forbidden", "You don't have access to this route."),
+    404: ("Page not found", "This URL isn't on the desk. Check the address, or return to the brief."),
+    405: ("Method not allowed", "This route doesn't accept that kind of request. Use the app to act."),
+    408: ("Request timeout", "The request took too long. Try again."),
+    413: ("Payload too large", "That request was too big. Trim it and resend."),
+    422: ("Unprocessable", "The request couldn't be processed because the input is invalid."),
+    429: ("Too many requests", "The desk is busy. Ease off and retry in a moment."),
+    500: ("Internal error", "Something on the desk broke. Retry; if it keeps happening, restart the server."),
+    501: ("Not implemented", "This action isn't wired up yet."),
+    502: ("Bad gateway", "An upstream feed or model didn't answer. The desk is retrying."),
+    503: ("Service restarting", "The desk is briefly offline. Retry in a moment."),
+    504: ("Gateway timeout", "An upstream feed or model took too long. The scheduler will retry."),
+}
+
+
+def _error_html(status: int, title: str, message: str) -> str:
+    t = _html.escape(title)
+    m = _html.escape(message)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0000f2">
+<title>{status} · {t} · Research Desk</title>
+<style>{_ERROR_CSS}</style>
+</head>
+<body>
+  <div class="card">
+    <div class="eyebrow">Research<span class="sep">—</span>Desk <span class="sep">·</span> Signal</div>
+    <div class="num">{status}</div>
+    <div class="rule"></div>
+    <h1>{t}</h1>
+    <p class="msg">{m}</p>
+    <a class="btn" href="/">Return to the desk</a>
+  </div>
+</body>
+</html>"""
+
+
+def _error_payload(status: int):
+    title, message = _ERROR_COPY.get(status, (None, None))
+    if title is None:
+        try:
+            title = HTTPStatus(status).phrase or "Error"
+        except ValueError:
+            title = "Error"
+        message = "The desk can't complete this request."
+    return title, message
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exception(request: Request, exc: StarletteHTTPException):
+    """Branded error page for browser hits, JSON for API hits (404/405/5xx…)."""
+    status = exc.status_code
+    if request.url.path.startswith("/api"):
+        return JSONResponse(
+            {"error": str(exc.detail), "status": status}, status_code=status)
+    title, message = _error_payload(status)
+    return HTMLResponse(_error_html(status, title, message), status_code=status)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception(request: Request, exc: RequestValidationError):
+    status = 422
+    if request.url.path.startswith("/api"):
+        return JSONResponse(
+            {"error": "Unprocessable entity", "detail": exc.errors(),
+             "status": status}, status_code=status)
+    title, message = _error_payload(status)
+    return HTMLResponse(_error_html(status, title, message), status_code=status)
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception(request: Request, exc: Exception):
+    status = 500
+    if request.url.path.startswith("/api"):
+        return JSONResponse(
+            {"error": "Internal server error", "status": status},
+            status_code=status)
+    title, message = _error_payload(status)
+    return HTMLResponse(_error_html(status, title, message), status_code=status)
+
+
+@app.api_route("/robots.txt", methods=["GET", "HEAD"], include_in_schema=False)
+def robots_txt():
+    return Response(content=ROBOTS_TXT, media_type="text/plain")
+
+
+@app.api_route("/sitemap.xml", methods=["GET", "HEAD"], include_in_schema=False)
+def sitemap_xml():
+    return Response(content=SITEMAP_XML, media_type="application/xml")
+
+
+@app.api_route("/site.webmanifest", methods=["GET", "HEAD"], include_in_schema=False)
+def site_manifest():
+    return Response(content=SITE_MANIFEST, media_type="application/manifest+json")
 
 
 # --------------------------------------------------------------------- schemas
@@ -334,8 +498,45 @@ def test_engine(req: EngineTestReq):
     except Exception as exc:  # noqa: BLE001 - surfaced to the UI as the message
         return {"ok": False, "message": str(exc)}
 
-
 # --------------------------------------------------------------------- static
+def _allowed_methods(path: str) -> set[str]:
+    """Allowed HTTP verbs for a matched route, ignoring the api catch-all and
+    the static mount — lets us report a genuine 405 instead of a swallowed 404."""
+    allowed: set[str] = set()
+    for route in app.routes:
+        if getattr(route, "path", None) == "/api/{path:path}":
+            continue
+        if isinstance(route, Mount):
+            continue
+        if not isinstance(route, Route):
+            continue
+        path_re = getattr(route, "path_regex", None)
+        if path_re is not None and path_re.match(path):
+            methods = getattr(route, "methods", None)
+            if methods:
+                allowed |= set(methods)
+    return allowed
+
+
+# Any /api path the specific routes didn't fully match lands here. Registered
+# BEFORE the static mount so the mount can't shadow it with a 404, giving
+# correct 404 (unknown) and 405 (wrong method) JSON for API clients.
+@app.api_route(
+    "/api/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    include_in_schema=False,
+)
+async def _api_catchall(request: Request):
+    allowed = _allowed_methods(request.url.path)
+    if request.method in allowed:
+        return JSONResponse({"error": "Not Found", "status": 404}, status_code=404)
+    if allowed:
+        return JSONResponse(
+            {"error": "Method Not Allowed", "status": 405}, status_code=405,
+            headers={"Allow": ", ".join(sorted(allowed))})
+    return JSONResponse({"error": "Not Found", "status": 404}, status_code=404)
+
+
 if DIST.exists():
     app.mount("/", StaticFiles(directory=str(DIST), html=True), name="ui")
 else:
