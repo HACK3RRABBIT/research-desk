@@ -6,3 +6,6 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 config.local.toml
+
+node_modules/
+webui/dist/

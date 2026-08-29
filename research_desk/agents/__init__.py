@@ -11,9 +11,10 @@ from .rumor_filter import RumorFilterAgent
 from .importance_ranker import ImportanceRankerAgent
 from .chief_of_staff import ChiefOfStaffAgent
 from .learning import LearningAgent
+from .discovery import DiscoveryAgent
 
 __all__ = [
     "IntakeAgent", "SourceMapperAgent", "ClaimExtractorAgent",
     "RumorFilterAgent", "ImportanceRankerAgent", "ChiefOfStaffAgent",
-    "LearningAgent",
+    "LearningAgent", "DiscoveryAgent",
 ]

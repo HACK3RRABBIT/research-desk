@@ -35,37 +35,52 @@ Six specialized agents share one **vault** and run on a scheduler.
 
 A **LEARNING LOOP** agent turns your feedback into trust/theme adjustments.
 
-### Engine: heuristic by default, LLM opt-in
+### Engine: always-on AI, configurable from the web
 
 Every qualitative call goes through a single `Reasoning` interface
-(`research_desk/reasoning.py`). Two implementations satisfy it:
+(`research_desk/reasoning.py`). Three implementations satisfy it:
 
+- **`OpenAICompatibleReasoning`** — the **default** engine. Calls any
+  OpenAI-compatible endpoint (`POST /chat/completions`) with plain `requests` —
+  works with OpenAI, OpenRouter, vLLM, LM Studio, Ollama, Groq, etc. Base URL,
+  API key, and model name are configured live from the web UI (or `config.local.toml`),
+  reconfigurable at any time without touching agent code.
+- **`AnthropicReasoning`** — calls Claude directly. Selected when
+  `llm.provider = "anthropic"` and an API key is present.
 - **`HeuristicReasoning`** — pure Python rules, **zero external dependencies,
-  runs offline immediately**. This is the default.
-- **`AnthropicReasoning`** — calls Claude for smarter extraction / filtering /
-  ranking. Auto-activates when `llm.provider = "anthropic"` **and** an API key
-  is present (env `ANTHROPIC_API_KEY` or `config.toml`). Falls back to
-  heuristics if the call fails.
+  runs offline immediately**. Used when no engine is configured yet.
 
-You never touch agent code to switch engines.
+Only `reasoning.py` + `config.llm` decide the engine. Agents never hard-code it.
+The engine is **always-on**: on startup the web UI gates until a model is wired
+up, then the scheduler begins polling. Any backend failure falls back to
+heuristics rather than crashing the cycle. It is also self-learning — feedback
+re-ranks importance over time, and new accounts are discovered from deep post
+analysis (importance is judged by substance, never by fame or a blue tick).
 
 ## Setup
 
 ```bash
 uv venv .venv && source .venv/bin/activate
-uv pip install -e ".[dev]"          # add [llm] for the Claude backend
+uv pip install -e ".[dev]"
 ```
 
-Copy and edit the config:
+**Launch the desk** (always-on web UI + API):
 
 ```bash
-cp config.toml config.local.toml     # optional; config.toml is used by default
+uvicorn research_desk.server:app --host 0.0.0.0 --port 8088
 ```
 
-Edit `watched_users`, `watched_keywords`, `watched_lists`, `languages`,
-`poll_interval`, and `rsshub_base_url` (self-host RSSHub for reliability:
-https://docs.rsshub.app/). RSSHub `/twitter` routes require RSSHub's Twitter
-radar access — see RSSHub docs; if a route 404s the system logs and continues.
+Open `http://localhost:8088` → the AI Engine gate asks for your provider, base
+URL, API key, and model name (OpenAI-compatible by default). Save it; the desk
+starts polling immediately. Secrets go to the gitignored `config.local.toml` —
+never to git.
+
+You can also configure it from the CLI by editing `config.local.toml`
+(copied from `config.toml`): `watched_users`, `watched_keywords`,
+`watched_lists`, `languages`, `poll_interval`, `rsshub_base_url` (self-host
+RSSHub for reliability — docs at https://docs.rsshub.app/). RSSHub `/twitter`
+routes require RSSHub's Twitter radar access; if a route 404s the system logs
+and continues.
 
 > The X web-search route (`x_search_queries`) only runs when you export
 > `X_API_BEARER="<your token>"`. Without it, the desk runs on RSSHub alone.
@@ -99,9 +114,20 @@ themes you want more of — so the next brief adapts to you.
 
 ## Milestone status
 
+**v0.1.1 — always-on intelligence + Hermes web UI.** Every agent uses AI via an
+**OpenAI-compatible** engine configured live from the browser (provider, base
+URL, API key, model name). The whole web UI is redesigned in the **Hermes**
+house style (real webfonts, ultramarine field, chartreuse accents, noise/vignette
+surfaces) and served at `0.0.0.0:8088`. The engine is always-on: it gates on
+setup at first start, then polls continuously, reconfigurable and resettable at
+any time. New accounts are auto-discovered from deep post analysis, importance is
+judged by substance (not fame/blue-tick), and the system continuously learns and
+re-ranks from feedback. Control the desk from the browser: run a cycle, toggle
+the scheduler, give feedback, manage watched accounts/keywords, and watch the
+source-trust and theme dashboards.
 **v0.1.0 — first working version.** Ingests from RSSHub Twitter feeds (+ X
 keyword search when a bearer token is set), extracts claims, filters obvious
-rumors, and writes one markdown brief. Iterating from here.
+rumors, and writes one markdown brief.
 
 ## Notes & limits
 

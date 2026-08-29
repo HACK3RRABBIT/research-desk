@@ -58,15 +58,39 @@ CONFIG_DEFAULTS: dict[str, Any] = {
         "min_importance": 0.0,   # items below this are noise
     },
 
-    # Optional LLM backend. When provider is "anthropic" and a key is present,
-    # individual agents transparently upgrade from heuristics to Claude.
+    # Optional LLM backend — the intelligence engine. Every agent that makes a
+    # qualitative call delegates here. On startup the webui gates on this being
+    # configured (see Config.needs_setup): the agent is ALWAYS-ON by design, so
+    # we default to the OpenAI-compatible provider and only fall back to the
+    # offline heuristic when a call fails at runtime (never by choice).
+    # "provider": "openai" | "anthropic" | "heuristic" (troubleshoot fallback)
     "llm": {
-        "provider": "anthropic",
-        "model": "claude-haiku-4-5-20251001",
+        "provider": "openai",
+        # base_url/model start empty so the webui rings the setup bell until
+        # the user supplies them (see Config.needs_setup). The UI prefills
+        # OpenAI-compatible placeholders to make that one click.
+        "base_url": "",
+        "model": "",
         "temperature": 0.0,
         "max_tokens": 1024,
-        # Override the API key via env ANTHROPIC_API_KEY or set it here.
+        "timeout": 60,
+        # Override via env OPENAI_API_KEY / ANTHROPIC_API_KEY, or set it here.
         "api_key": "",
+    },
+
+    # Automatic account discovery: the desk keeps watching the accounts on its
+    # roadmap, but instead of being a fixed list it learns new ones as it reads
+    # posts (authors, quotes, @mentions) and finds them worth covering.
+    "discovery": {
+        "enabled": True,
+        "max_per_cycle": 5,      # how many new accounts to add per cycle
+        "max_total": 50,         # ceiling on auto-discovered accounts
+    },
+
+    # Scheduler: on server start, if the engine is configured, begin polling
+    # immediately. The desk is meant to run continuously.
+    "scheduler": {
+        "autostart": True,
     },
 
     # Where we store state.
@@ -77,6 +101,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {
 @dataclass
 class Config:
     raw: dict[str, Any] = field(default_factory=dict)
+    local_path: Path = field(default_factory=lambda: Path("config.local.toml"))
 
     # ---- convenience accessors -------------------------------------------
     @property
@@ -119,38 +144,118 @@ class Config:
     def llm(self) -> dict[str, Any]:
         return self.raw["llm"]
 
+    @property
+    def discovery(self) -> dict[str, Any]:
+        return self.raw["discovery"]
+
+    @property
+    def scheduler(self) -> dict[str, Any]:
+        return self.raw["scheduler"]
+
+    # ---- LLM readiness ---------------------------------------------------
+    @property
+    def llm_provider(self) -> str:
+        return self.llm.get("provider", "heuristic")
+
+    def _llm_ready(self) -> bool:
+        """True when the configured provider has what it needs to run."""
+        p = self.llm_provider
+        if p == "openai":
+            return bool(self.llm.get("base_url", "").strip()) and bool(
+                self.llm.get("model", "").strip())
+        if p == "anthropic":
+            return bool(self.llm_key())
+        return False
+
     def has_llm(self) -> bool:
-        """True when the LLM backend should be used this run."""
-        if self.llm.get("provider") != "anthropic":
+        """True when the intelligence engine should be used this run."""
+        return self._llm_ready()
+
+    def needs_setup(self) -> bool:
+        """True when the engine is unconfigured and must be set up before use.
+
+        The desk is always-on by design; when the active provider is not yet
+        configured we block on a setup screen rather than silently downgrading.
+        """
+        if self.llm_provider not in ("openai", "anthropic"):
             return False
-        key = self.llm.get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
-        return bool(key)
+        return not self._llm_ready()
+
+    @property
+    def llm_env_var(self) -> str:
+        return "OPENAI_API_KEY" if self.llm_provider == "openai" \
+            else "ANTHROPIC_API_KEY"
 
     def llm_key(self) -> str:
-        return self.llm.get("api_key") or os.environ.get("ANTHROPIC_API_KEY", "")
+        return self.llm.get("api_key") or os.environ.get(self.llm_env_var, "")
+
+    # ---- LLM mutation ----------------------------------------------------
+    def set_llm(self, **kw: Any) -> "Config":
+        """Apply a partial update to the llm block (used by the webui)."""
+        for k, v in kw.items():
+            if v is not None:
+                self.llm[k] = v
+        return self
 
     def add_watched_user(self, user: str) -> None:
+        user = user.strip().lstrip("@")
         if user and user not in self.raw["watched_users"]:
             self.raw["watched_users"].append(user)
 
     def add_keyword(self, kw: str) -> None:
+        kw = kw.strip()
         if kw and kw not in self.raw["watched_keywords"]:
             self.raw["watched_keywords"].append(kw)
 
-    def save(self, path: Path) -> None:
+    def discovered_users(self) -> list[str]:
+        return list(self.raw.get("discovered_users", []))
+
+    def add_discovered_user(self, user: str) -> bool:
+        user = user.strip().lstrip("@")
+        if not user:
+            return False
+        disc = self.raw.setdefault("discovered_users", [])
+        if user in self.raw["watched_users"] or user in disc:
+            return False
+        if len(disc) >= int(self.discovery.get("max_total", 50)):
+            return False
+        disc.append(user)
+        self.raw["watched_users"].append(user)
+        return True
+
+    def save(self, path: Path | None = None) -> None:
         import tomli_w  # optional dep; only needed when persisting edits
-        path.write_text(tomli_w.dumps(self.raw), encoding="utf-8")
+        path = path or self.local_path
+        # Persist only the runtime-managed keys (never the whole snapshot, so a
+        # user's committed config.toml keeps authority for preferences, etc.).
+        snapshot = {
+            "llm": self.llm,
+            "watched_users": self.raw["watched_users"],
+            "watched_keywords": self.raw["watched_keywords"],
+            "discovered_users": self.raw.get("discovered_users", []),
+        }
+        path.write_text(tomli_w.dumps(snapshot), encoding="utf-8")
 
 
 def load_config(path: str | Path | None = None) -> Config:
-    """Merge file config (if any) over CONFIG_DEFAULTS."""
-    path = Path(path) if path else Path("config.toml")
+    """Merge config.toml, then gitignored config.local.toml, over defaults.
+
+    config.local.toml holds runtime state (LLM credentials, discovered/watched
+    accounts) so secrets and auto-learned sources never touch git.
+    """
+    base = Path(path) if path else Path("config.toml")
+    local = base.with_name(f"{base.stem}.local.toml") if base.suffix == ".toml" \
+        else Path(str(base) + ".local")
+
     raw = dict(CONFIG_DEFAULTS)
-    if path.exists():
-        with path.open("rb") as fh:
-            user_cfg = tomllib.load(fh)
-        _deep_update(raw, user_cfg)
-    return Config(raw=raw)
+    for p in (base, local):
+        if p.exists():
+            with p.open("rb") as fh:
+                _deep_update(raw, tomllib.load(fh))
+    cfg = Config(raw=raw)
+    # Track the resolved local path so save() lands in the right place.
+    cfg.local_path = local
+    return cfg
 
 
 def _deep_update(base: dict, override: dict) -> None:

@@ -1,0 +1,15 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="research-desk logo">
+  <!-- ultramarine app tile -->
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="#0000F2"/>
+  <!-- concentric intelligence sweep from the lower-left node -->
+  <g stroke="#EDFF45" fill="none" stroke-linecap="round" stroke-width="13">
+    <path d="M74 190 A30 30 0 0 1 104 160" stroke-opacity="0.45"/>
+    <path d="M74 190 A60 60 0 0 1 134 130" stroke-opacity="0.72"/>
+    <path d="M74 190 A92 92 0 0 1 166 98"  stroke-opacity="0.96"/>
+  </g>
+  <circle cx="74" cy="190" r="12" fill="#EDFF45"/>
+  <!-- off-white R monogram -->
+  <path fill="#F5F5F5" fill-rule="evenodd" d="M120 178 L120 84 L158 84 C176 84 186 96 186 110 C186 123 177 134 164 136 L186 178 L166 178 L146 136 L142 136 L142 178 Z M142 102 L142 118 L156 118 C163 118 166 114 166 108 C166 102 163 98 156 98 Z"/>
+  <!-- chartreuse underline stroke — "the mark that grows with you" -->
+  <path stroke="#EDFF45" stroke-width="9" stroke-linecap="round" d="M120 198 L186 198"/>
+</svg>

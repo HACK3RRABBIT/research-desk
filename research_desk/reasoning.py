@@ -199,53 +199,39 @@ class HeuristicReasoning(Reasoning):
 
 
 # --------------------------------------------------------------------- LLM
-class AnthropicReasoning(Reasoning):
-    engine = "anthropic"
+class LLMReasoning(Reasoning):
+    """Shared judgement core for any model-backed backend.
+
+    Holds the prompt strategy, the system message, and the mapping of model
+    JSON back onto the Claim schema. Subclasses implement only ``_ask`` (the
+    transport) and ``engine``. Any parse/transport failure falls back to the
+    offline heuristic, so a flaky connection never kills the desk.
+    """
 
     SYSTEM = (
-        "You are the judgement core of a real-time X/Twitter news desk. "
-        "You extract atomic claims from posts, decide whether each is a "
-        "verified fact or an unverified rumor, and rank real-world importance. "
-        "You are strict: drop teaser/'incoming' posts, anonymous source piles, "
-        "screenshot-only claims, and vague non-checkable statements. You favor "
-        "first-party official statements, market/policy/security-moving facts, "
-        "and primary evidence (official docs, video, legal text). "
-        "Respond ONLY with valid JSON matching the requested schema."
+        "You are the judgement core of a real-time X/Twitter news desk. You "
+        "extract atomic claims from posts, decide whether each is a verified "
+        "fact or an unverified rumor, and rank real-world importance. You are "
+        "strict: drop teaser/'incoming' posts, anonymous source piles, "
+        "screenshot-only claims, and vague non-checkable statements.\n"
+        "Judge importance by the real-world impact and verifiability of the "
+        "FACT itself. NEVER weight an account's follower count, verification "
+        "badge ('blue tick'), celebrity, or fame — a famous account can spread "
+        "gossip and a small account can break real news. Favor first-party "
+        "official statements and facts that move money/policy/security/energy/"
+        "tech/geopolitics, plus primary evidence (official docs, video, legal "
+        "text). Respond ONLY with valid JSON matching the requested schema."
     )
 
     def __init__(self, config: Config):
         self.config = config
-        self.heuristic = HeuristicReasoning(config)  # fallback on parse errors
-        try:
-            import anthropic  # noqa: F401
-        except ImportError as exc:  # pragma: no cover
-            raise RuntimeError(
-                "anthropic package not installed; run `pip install anthropic` "
-                "or remove ANTHROPIC_API_KEY") from exc
-        self._client = None  # lazy
+        self.heuristic = HeuristicReasoning(config)  # fallback on any error
 
-    @property
-    def client(self):
-        if self._client is None:
-            import anthropic
-            self._client = anthropic.Anthropic(api_key=self.config.llm_key())
-        return self._client
-
+    @abstractmethod
     def _ask(self, user_prompt: str) -> Optional[dict]:
-        try:
-            resp = self.client.messages.create(
-                model=self.config.llm.get("model", "claude-haiku-4-5-20251001"),
-                max_tokens=int(self.config.llm.get("max_tokens", 1024)),
-                temperature=float(self.config.llm.get("temperature", 0.0)),
-                system=self.SYSTEM,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-            text = "".join(b.text for b in resp.content if b.type == "text")
-            return json.loads(text)
-        except Exception as exc:  # pragma: no cover - network/parse
-            print(f"[reasoning] LLM call failed, using heuristic: {exc}")
-            return None
+        ...
 
+    # -- shared claim mapping ---------------------------------------------
     def extract_claims(self, post: Post, source: SourceNode) -> list[Claim]:
         prompt = (
             "Extract atomic, independently-checkable claims from this post.\n"
@@ -294,9 +280,12 @@ class AnthropicReasoning(Reasoning):
             return self.heuristic.evaluate_claim(claim, source,
                                                 independent_corroborators)
         conf = data.get("confidence", "unconfirmed")
-        claim.confidence = Confidence(conf) if conf in Confidence._value2member_map_ else Confidence.UNCONFIRMED
+        claim.confidence = (Confidence(conf)
+                            if conf in Confidence._value2member_map_
+                            else Confidence.UNCONFIRMED)
         claim.verdict = data.get("verdict", "kept")
-        claim.importance = max(0.0, min(1.0, float(data.get("importance", 0.0))))
+        claim.importance = max(
+            0.0, min(1.0, float(data.get("importance", 0.0))))
         claim.reason = data.get("reason", "")
         claim.corroborators = [c for c in independent_corroborators
                                if c != claim.said_by]
@@ -306,8 +295,95 @@ class AnthropicReasoning(Reasoning):
         return self.heuristic.rank_importance(claims)
 
 
+class OpenAICompatibleReasoning(LLMReasoning):
+    """Any OpenAI-chat-completions endpoint: OpenAI, OpenRouter, vLLM, LM Studio,
+    Ollama, etc. Uses plain `requests` (a hard dependency) so no extra package is
+    needed. Key is optional — keyless local servers work too."""
+
+    engine = "openai"
+
+    def _ask(self, user_prompt: str) -> Optional[dict]:
+        try:
+            import requests  # hard dependency
+            base = self.config.llm.get("base_url", "").rstrip("/")
+            model = self.config.llm.get("model", "")
+            key = self.config.llm_key()
+            headers = {"Content-Type": "application/json"}
+            if key:
+                headers["Authorization"] = f"Bearer {key}"
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": self.SYSTEM},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": float(self.config.llm.get("temperature", 0.0)),
+                "max_tokens": int(self.config.llm.get("max_tokens", 1024)),
+            }
+            resp = requests.post(
+                f"{base}/chat/completions", headers=headers, json=payload,
+                timeout=float(self.config.llm.get("timeout", 60)))
+            resp.raise_for_status()
+            text = resp.json()["choices"][0]["message"]["content"]
+            return json.loads(text)
+        except Exception as exc:  # pragma: no cover - network/parse
+            print(f"[reasoning] OpenAI-compatible call failed, using heuristic: "
+                  f"{exc}")
+            return None
+
+
+class AnthropicReasoning(LLMReasoning):
+    engine = "anthropic"
+
+    def __init__(self, config: Config):
+        super().__init__(config)
+        try:
+            import anthropic  # noqa: F401
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "anthropic package not installed; run `pip install anthropic` "
+                "or remove ANTHROPIC_API_KEY") from exc
+        self._client = None  # lazy
+
+    @property
+    def client(self):
+        if self._client is None:
+            import anthropic
+            self._client = anthropic.Anthropic(api_key=self.config.llm_key())
+        return self._client
+
+    def _ask(self, user_prompt: str) -> Optional[dict]:
+        try:
+            resp = self.client.messages.create(
+                model=self.config.llm.get("model", "claude-haiku-4-5-20251001"),
+                max_tokens=int(self.config.llm.get("max_tokens", 1024)),
+                temperature=float(self.config.llm.get("temperature", 0.0)),
+                system=self.SYSTEM,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            text = "".join(b.text for b in resp.content if b.type == "text")
+            return json.loads(text)
+        except Exception as exc:  # pragma: no cover - network/parse
+            print(f"[reasoning] LLM call failed, using heuristic: {exc}")
+            return None
+
+
 def get_reasoning(config: Config) -> Reasoning:
-    if config.has_llm():
+    """Pick the engine: openai-compatible, anthropic, or the offline heuristic.
+
+    The desk is always-on by design. When an LLM backend is configured but
+    momentarily unavailable (bad key, no network), `_ask` already downgraded to
+    the heuristic for the API call rather than crashing; here we only guard
+    against a backend that cannot even be constructed (e.g. missing package).
+    """
+    provider = config.llm_provider
+    if provider == "openai" and config.has_llm():
+        try:
+            return OpenAICompatibleReasoning(config)
+        except RuntimeError as exc:
+            print(f"[reasoning] OpenAI-compatible unavailable ({exc}); "
+                  f"using heuristics.")
+    elif provider == "anthropic" and config.has_llm():
         try:
             return AnthropicReasoning(config)
         except RuntimeError as exc:

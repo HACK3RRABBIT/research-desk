@@ -1,0 +1,108 @@
+/* ============================================================
+   x-grok — design tokens for research-desk
+   Anchored to x.com (X) conventions: "lights out" black,
+   Chirp-style grotesque stack, 1.5px hairlines, pill buttons,
+   16px-radius cards. Grok contribution: right-side answer /
+   sources panel and confidence tags.
+   Categorical palette validated (OKLab ΔE) in light AND dark
+   via the dataviz validator. Order below is the FIXED order —
+   never cycled.
+   ============================================================ */
+
+:root {
+  /* ---- typography ---- */
+  --font-sans: "Chirp", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "Chirp Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --text-xxl: 22px;  /* page titles */
+  --text-xl: 19px;   /* card headlines */
+  --text-lg: 17px;   /* nav labels, section heads */
+  --text-md: 15px;   /* body */
+  --text-sm: 14px;   /* meta, pills */
+  --text-xs: 13px;   /* captions, timestamps */
+  --text-2xs: 11px;  /* tag labels */
+
+  /* ---- shape ---- */
+  --radius-card: 16px;
+  --radius-pill: 9999px;
+  --radius-sm: 10px;
+  --line: 1px;          /* hairline borders (X convention) */
+  --gap: 12px;          /* column gutter */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px;
+  --col-nav: 275px;     /* left rail */
+  --col-main: 600px;    /* feed max width */
+  --col-right: 350px;   /* grok panel */
+
+  /* ---- accent (X blue, both modes) ---- */
+  --accent: #1d9bf0;
+  --accent-hover: #1a8cd8;
+  --accent-ink: #ffffff;
+  --accent-tint: rgba(29, 155, 240, 0.12);
+
+  /* ---- status (reserved; always icon+label, never color alone) ---- */
+  --st-ok: #00ba7c;      /* confirmed   */
+  --st-ok-tint: rgba(0, 186, 124, 0.14);
+  --st-likely: #1d9bf0;  /* likely      */
+  --st-likely-tint: rgba(29, 155, 240, 0.14);
+  --st-warn: #ffd400;    /* unconfirmed / watch */
+  --st-warn-tint: rgba(255, 212, 0, 0.14);
+  --st-crit: #e0245e;    /* dropped signal — NOT the low-trust tier red #f4212e */
+  --st-crit-tint: rgba(224, 36, 94, 0.12);
+
+  /* ---- source tier categorical (FIXED order, validated) ---- */
+  --tier-gov: #1d9bf0;        /* official government      */
+  --tier-company: #7856ff;    /* official company         */
+  --tier-journalist: #009c66; /* primary journalist       */
+  --tier-expert: #0891b2;     /* subject-matter expert    */
+  --tier-aggregator: #e8620a; /* aggregator (validated in BOTH modes) */
+  --tier-lowtrust: #f4212e;   /* low trust                */
+  --tier-unknown: #71767b;    /* neutral — not a hue, always text-labeled */
+
+  /* ---- motion ---- */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --t-fast: 120ms;
+  --t-med: 220ms;
+}
+
+/* ============================================================
+   DARK — X "lights out" (default)
+   ============================================================ */
+:root[data-theme="dark"] {
+  --bg: #000000;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(255, 255, 255, 0.10);
+  --bg-elev: #000000;
+  --border: #2f3336;
+  --border-soft: #202428;
+  --text: #e7e9ea;
+  --text-2: #71767b;
+  --text-3: #536471;
+  --topbar-bg: rgba(0, 0, 0, 0.75);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --input-bg: #202428;
+  --st-warn-ink: #ffd400;
+  color-scheme: dark;
+}
+
+/* ============================================================
+   LIGHT — classic x.com white
+   ============================================================ */
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-hover: rgba(15, 20, 25, 0.05);
+  --bg-active: rgba(15, 20, 25, 0.09);
+  --bg-elev: #ffffff;
+  --border: #eff3f4;
+  --border-soft: #f7f9f9;
+  --text: #0f1419;
+  --text-2: #536471;
+  --text-3: #8b98a5;
+  --topbar-bg: rgba(255, 255, 255, 0.78);
+  --shadow: 0 8px 24px rgba(15, 20, 25, 0.12);
+  --scrim: rgba(15, 20, 25, 0.4);
+  --input-bg: #eff3f4;
+  --st-warn-ink: #8a6d00; /* dark gold ink on white for legibility */
+  color-scheme: light;
+}

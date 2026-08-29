@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>research-desk — X / Grok prototype</title>
+<!-- Design tokens linked, not duplicated: /opendesign/design-systems/x-grok/colors_and_type.css -->
+<link rel="stylesheet" href="../../design-systems/x-grok/colors_and_type.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--font-sans);font-size:15px;line-height:1.4;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit}
+.muted{color:var(--text-2)}
+/* layout */
+.app{display:grid;grid-template-columns:var(--col-nav) minmax(0,var(--col-main)) var(--col-right);gap:0;max-width:1300px;margin:0 auto;min-height:100vh}
+.col-left{border-right:1px solid var(--border);padding:12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column}
+.col-main{border-right:1px solid var(--border);min-height:100vh}
+.col-right{padding:12px}
+/* brand + nav */
+.brand{display:flex;align-items:center;gap:10px;padding:8px 8px 18px}
+.brand img{width:34px;height:34px;border-radius:10px}
+.brand h1{font-size:19px;font-weight:800;letter-spacing:-.3px}
+.nav{display:flex;flex-direction:column;gap:4px}
+.nav button{display:flex;align-items:center;gap:15px;font-size:18px;font-weight:600;padding:12px 16px;border-radius:var(--radius-pill);text-align:left;width:100%}
+.nav button:hover{background:var(--bg-hover)}
+.nav button.active{font-weight:800}
+.nav .ico{width:24px;text-align:center;font-size:19px}
+.nav button .newdot{margin-left:auto;background:var(--accent);color:#fff;font-size:11px;font-weight:700;border-radius:var(--radius-pill);min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 6px}
+/* primary run button (X "Post" slot) */
+.run-cta{margin-top:18px;background:var(--accent);color:var(--accent-ink);border-radius:var(--radius-pill);padding:13px 0;font-size:16px;font-weight:700;width:100%;transition:background var(--t-fast) var(--ease)}
+.run-cta:hover{background:var(--accent-hover)}
+.avatar-strip{margin-top:auto;display:flex;align-items:center;gap:8px;padding:8px;border-radius:var(--radius-pill)}
+.avatar-strip:hover{background:var(--bg-hover)}
+.avatar-strip .n{font-size:14px;font-weight:700}
+.avatar-strip .h{font-size:13px;color:var(--text-2)}
+.theme-toggle{display:flex;gap:4px;margin-top:10px}
+.theme-toggle button{flex:1;padding:7px 0;font-size:12px;font-weight:700;border-radius:var(--radius-pill);border:1px solid var(--border)}
+.theme-toggle button.on{background:var(--accent);color:#fff;border-color:transparent}
+/* topbar */
+.topbar{position:sticky;top:0;z-index:5;backdrop-filter:blur(12px);background:var(--topbar-bg);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;gap:12px}
+.topbar h2{margin:0;font-size:20px;font-weight:800}
+.topbar .controls{margin-left:auto;display:flex;align-items:center;gap:8px}
+.menu-btn{display:none}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--text-3);display:inline-block}
+.dot.on{background:var(--st-ok);box-shadow:0 0 0 4px rgba(0,186,124,.25)}
+.btn{border:1px solid var(--border);background:var(--bg-elev);color:var(--text);padding:8px 15px;border-radius:var(--radius-pill);font-weight:700;font-size:14px;transition:background var(--t-fast)}
+.btn:hover{background:var(--bg-hover)}
+.btn-primary{background:var(--accent);color:#fff;border-color:transparent}
+.btn-primary:hover{background:var(--accent-hover)}
+.btn-ghost{background:transparent}
+.btn-sm{padding:5px 10px;font-size:12px}
+.content{padding:16px}
+/* backend status strip at very top of feed */
+.desk-strip{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border-soft);font-size:13px;color:var(--text-2)}
+.desk-strip b{color:var(--text)}
+/* tabs (X-style For you/Following) */
+.tabs{display:flex;border-bottom:1px solid var(--border);position:sticky;top:58px;background:var(--topbar-bg);backdrop-filter:blur(12px);z-index:4}
+.tabs button{flex:1;padding:15px 0;font-size:15px;font-weight:700;color:var(--text-2);position:relative}
+.tabs button.active{color:var(--text);font-weight:800}
+.tabs button.active::after{content:"";position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:52px;height:4px;border-radius:4px;background:var(--accent)}
+/* post card */
+.post{border-bottom:1px solid var(--border);padding:12px 16px;cursor:pointer;transition:background var(--t-fast)}
+.post:hover{background:var(--bg-hover)}
+.post-top{display:flex;gap:10px}
+.post-av{width:42px;height:42px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#fff}
+.post-body{flex:1;min-width:0}
+.post-head{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.p-name{font-weight:700;font-size:15px}
+.p-verified{color:var(--accent);width:15px;height:15px;flex:none}
+.p-handle,.p-time{color:var(--text-2);font-size:15px}
+.p-time::before{content:"·";margin:0 2px}
+.post-text{font-size:15px;line-height:1.4;margin-top:2px}
+.post-text a{color:var(--accent)}
+.post-text .hashtag{color:var(--accent)}
+.post-meta{margin-top:8px;font-size:13px;color:var(--text-2);display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.conf{font-size:11px;font-weight:800;padding:3px 9px;border-radius:var(--radius-pill);text-transform:uppercase;letter-spacing:.4px;display:inline-flex;align-items:center;gap:4px}
+.conf svg{width:11px;height:11px}
+.conf.confirmed{background:var(--st-ok-tint);color:var(--st-ok)}
+.conf.likely{background:var(--st-likely-t);color:var(--st-likely)}
+.conf.unconfirmed{background:var(--st-warn-tint);color:var(--st-warn)}
+:root[data-theme="light"] .conf.unconfirmed{color:var(--st-warn-ink)}
+.support{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{background:var(--bg-active);border:1px solid var(--border);color:var(--text);padding:3px 10px;border-radius:var(--radius-pill);font-size:12px;font-weight:600}
+.chip .tierdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
+/* action bar */
+.actions{display:flex;align-items:center;justify-content:space-between;max-width:420px;margin-top:10px}
+.act{display:flex;align-items:center;gap:5px;color:var(--text-2);font-size:13px;padding:5px 8px;border-radius:var(--radius-pill)}
+.act:hover{background:var(--bg-hover)}
+.act svg{width:16px;height:16px}
+.act.reply:hover{color:var(--accent)}.act.repost:hover{color:var(--st-ok)}.act.like:hover{color:var(--st-crit)}
+/* feedback row */
+.feedback{display:none;flex-wrap:wrap;gap:6px;margin-top:8px}
+.post.feedback-open .feedback{display:flex}
+.feedback .btn{font-size:12px}
+/* watch + noise sections */
+.sec-h{font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--text-2);padding:14px 16px 4px}
+.watch-item{border-bottom:1px solid var(--border);padding:11px 16px;display:flex;gap:10px;align-items:baseline}
+.watch-item .wline{font-size:15px;font-weight:700}
+.watch-item .wwhy{color:var(--text-2);font-size:13px}
+.noise-item{border-bottom:1px solid var(--border-soft);padding:9px 16px;font-size:13px}
+.noise-item .reason{color:var(--text-3);font-style:italic}
+/* grok right panel */
+.panel{background:var(--bg-elev);border:1px solid var(--border);border-radius:var(--radius-card);padding:14px;margin-bottom:12px}
+.panel h3{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--text-3);margin-bottom:10px}
+.grok-answer{display:flex;gap:10px}
+.grok-av{width:30px;height:30px;border-radius:50%;background:var(--accent);flex:none;display:flex;align-items:center;justify-content:center;font-size:15px}
+.grok-body{font-size:14px;line-height:1.45}
+.grok-body p{margin-bottom:8px}
+.grok-sources{margin-top:10px;border-top:1px solid var(--border-soft);padding-top:8px}
+.grok-src{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px}
+.grok-src .tierdot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.row-spread{display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-top:1px solid var(--border-soft)}
+.row-spread .k{color:var(--text-2);font-size:13px}
+.row-spread .v{font-weight:700;font-size:13px}
+.agent-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--border-soft);font-size:13px}
+.agent-row .an{font-weight:700}
+.agent-row .ad{color:var(--text-2);margin-left:auto;text-align:right;max-width:180px;font-size:12px}
+/* dashboard */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.stat{background:var(--bg-active);border-radius:var(--radius-sm);padding:12px}
+.stat .n{font-size:24px;font-weight:800}
+.stat .l{color:var(--text-2);font-size:12px}
+.trust-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--border)}
+.trust-row .h{width:140px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trust-bar{flex:1;height:8px;background:var(--bg-active);border-radius:var(--radius-pill);overflow:hidden}
+.trust-bar>span{display:block;height:100%;border-radius:var(--radius-pill)}
+.tier{font-size:11px;color:var(--text-2);width:78px;text-align:right}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-2);margin-top:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px}
+/* sources/settings inputs */
+.inp{background:var(--input-bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-pill);padding:9px 14px;font-size:14px;outline:none;flex:1;min-width:0;font-family:inherit}
+.inp:focus{border-color:var(--accent)}
+.pillx{display:inline-flex;align-items:center;gap:6px;background:var(--bg-active);border:1px solid var(--border);border-radius:var(--radius-pill);padding:4px 11px;font-size:13px;font-weight:600}
+.pillx .x{opacity:.6;cursor:pointer}
+.sec-title{font-size:20px;font-weight:800;padding:14px 0 4px}
+.set-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--border)}
+.set-row .k{color:var(--text-2);font-size:14px}
+.set-row .v{font-weight:700}
+.tag-select{display:flex;gap:6px;flex-wrap:wrap}
+.tag{border:1px solid var(--border);border-radius:var(--radius-pill);padding:7px 14px;font-size:13px;font-weight:600;color:var(--text-2)}
+.tag.on{color:var(--text);background:var(--bg-active);border-color:var(--border)}
+/* scrim / mobile */
+.scrim{display:none;position:fixed;inset:0;background:var(--scrim);z-index:40}
+@media(max-width:1100px){.app{grid-template-columns:74px minmax(0,1fr)}.col-right{display:none}.brand h1,.nav button span.lbl{display:none}.nav button{justify-content:center}.newdot{display:none}}
+@media(max-width:700px){
+  .app{grid-template-columns:1fr}
+  .col-left{position:fixed;inset:0 auto 0 0;width:82vw;max-width:300px;z-index:50;background:var(--bg);transform:translateX(-100%);transition:transform .2s var(--ease);border-right:1px solid var(--border);visibility:hidden;pointer-events:none}
+  .app.nav-open .col-left{transform:translateX(0);visibility:visible;pointer-events:auto}
+  .app.nav-open .scrim{display:block}
+  .brand h1,.nav button span.lbl{display:revert}
+  .nav button{justify-content:flex-start}
+  .menu-btn{display:inline-flex}
+  .stat-grid{grid-template-columns:1fr 1fr}
+  .topbar h2{font-size:18px}
+  .desk-strip{display:none}
+}
+/* support section titles */
+.feed-section{display:block}
+.hidden{display:none!important}
+.divider{padding:10px 16px;color:var(--text-3);font-size:13px}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <!-- ============ LEFT NAV ============ -->
+  <nav class="col-left">
+    <div class="brand"><img src="logo.svg" alt=""><h1>research-desk</h1></div>
+    <div class="nav">
+      <button data-view="brief" class="active"><span class="ico">◆</span><span class="lbl">Brief</span></button>
+      <button data-view="dashboard"><span class="ico">▦</span><span class="lbl">Dashboard</span><span class="newdot">42</span></button>
+      <button data-view="sources"><span class="ico">◎</span><span class="lbl">Sources</span></button>
+      <button data-view="settings"><span class="ico">⚙</span><span class="lbl">Settings</span></button>
+    </div>
+    <button class="run-cta" id="runBtn">Run cycle</button>
+    <div class="theme-toggle" id="themeToggle">
+      <button data-t="dark" class="on">Dark</button>
+      <button data-t="light">Light</button>
+    </div>
+    <div class="avatar-strip">
+      <div class="post-av" style="background:linear-gradient(135deg,#7C9CFF,#8B5CF6);width:38px;height:38px;font-size:14px">R</div>
+      <div><div class="n">research-desk</div><div class="h">@local</div></div>
+    </div>
+  </nav>
+
+  <!-- ============ MAIN ============ -->
+  <main class="col-main">
+    <div class="topbar">
+      <button class="btn btn-ghost menu-btn" id="menuBtn">☰</button>
+      <h2 id="pageTitle">Brief</h2>
+      <div class="controls">
+        <button class="btn" id="autoBtn"><span class="dot" id="autoDot"></span> Auto</button>
+      </div>
+    </div>
+
+    <!-- desk state strip -->
+    <div class="desk-strip"><b>Heuristic</b> engine · live <span class="dot on"></span> · last cycle 01:24 UTC · 3 agents active</div>
+
+    <!-- ============ BRIEF VIEW ============ -->
+    <div class="view" id="view-brief">
+      <div class="tabs">
+        <button class="active" data-tab="main">Main brief</button>
+        <button data-tab="watch">Watchlist<span style="color:var(--st-warn);margin-left:4px">2</span></button>
+        <button data-tab="noise">Noise<span style="color:var(--text-3);margin-left:4px">3</span></button>
+      </div>
+
+      <div data-tabpane="main">
+        <!-- Main brief posts -->
+        <article class="post" id="p1">
+          <div class="post-top">
+            <div class="post-av" style="background:#1d9bf0">WH</div>
+            <div class="post-body">
+              <div class="post-head">
+                <span class="p-name">White House</span>
+                <svg class="p-verified" viewBox="0 0 24 24" fill="currentColor"><path d="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81c-.66-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81s-1.26 2.52-.8 3.91c-1.31.67-2.2 1.91-2.2 3.34s.89 2.67 2.2 3.34c-.46 1.39-.21 2.9.8 3.91s2.52 1.26 3.91.81c.67 1.31 1.91 2.19 3.34 2.19s2.68-.88 3.34-2.19c1.39.45 2.9.2 3.91-.81s1.27-2.52.81-3.91c1.31-.67 2.19-1.91 2.19-3.34zm-11.71 4.2L6.8 12.46l1.41-1.42 2.26 2.26 4.8-5.23 1.47 1.36-6.2 6.77z"/></svg>
+                <span class="p-handle">@WhiteHouse</span><span class="p-time">2m</span>
+              </div>
+              <div class="post-text">Official: targeted <a href="#">sanctions</a> on 5 oil firms announced today — <span class="hashtag">#energy</span>, 2.1M barrels affected. Primary document filed.</div>
+              <div class="post-meta">
+                <span class="conf confirmed"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>confirmed</span>
+                <span>primary source</span><span>evidence attached</span>
+              </div>
+              <div class="support"><span class="chip"><i class="tierdot" style="background:var(--tier-gov)"></i>@EnergyDept</span><span class="chip"><i class="tierdot" style="background:var(--tier-expert)"></i>@OilAnalyst</span></div>
+              <div class="actions">
+                <button class="act reply">💬 34</button>
+                <button class="act repost">🔁 128</button>
+                <button class="act like">❤️ 210</button>
+                <button class="act">📈 2.4K</button>
+                <button class="btn btn-sm btn-ghost" onclick="toggleFeedback('p1')">Feedback</button>
+              </div>
+              <div class="feedback" id="fb-p1">
+                <button class="btn btn-sm" onclick="flash('useful')">Useful</button>
+                <button class="btn btn-sm" onclick="flash('not useful')">Not useful</button>
+                <button class="btn btn-sm" onclick="flash('rumor')">Rumor</button>
+                <button class="btn btn-sm" onclick="flash('too local')">Too local</button>
+                <button class="btn btn-sm" onclick="flash('too political')">Too political</button>
+                <button class="btn btn-sm" onclick="flash('want more')">Want more</button>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="post">
+          <div class="post-top">
+            <div class="post-av" style="background:#7856ff">OA</div>
+            <div class="post-body">
+              <div class="post-head">
+                <span class="p-name">OpenAI</span>
+                <svg class="p-verified" viewBox="0 0 24 24" fill="currentColor"><path d="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81c-.66-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81s-1.26 2.52-.8 3.91c-1.31.67-2.2 1.91-2.2 3.34s.89 2.67 2.2 3.34c-.46 1.39-.21 2.9.8 3.91s2.52 1.26 3.91.81c.67 1.31 1.91 2.19 3.34 2.19s2.68-.88 3.34-2.19c1.39.45 2.9.2 3.91-.81s1.27-2.52.81-3.91c1.31-.67 2.19-1.91 2.19-3.34zm-11.71 4.2L6.8 12.46l1.41-1.42 2.26 2.26 4.8-5.23 1.47 1.36-6.2 6.77z"/></svg>
+                <span class="p-handle">@OpenAI</span><span class="p-time">18m</span>
+              </div>
+              <div class="post-text">New <a href="#">AI</a> policy: enterprise usage tiers ship Sep 1. Market-moving for platform operators. <span class="hashtag">#tech</span></div>
+              <div class="post-meta">
+                <span class="conf likely"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 6 7l6 5-6 5 6 5 6-5-6-5 6-5z"/></svg>likely</span>
+                <span>first-party</span>
+              </div>
+              <div class="support"><span class="chip"><i class="tierdot" style="background:var(--tier-journalist)"></i>@techmeme</span><span class="chip"><i class="tierdot" style="background:var(--tier-expert)"></i>@a_ng</span></div>
+              <div class="actions">
+                <button class="act reply">💬 12</button>
+                <button class="act repost">🔁 76</button>
+                <button class="act like">❤️ 98</button>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="post">
+          <div class="post-top">
+            <div class="post-av" style="background:#009c66">TX</div>
+            <div class="post-body">
+              <div class="post-head">
+                <span class="p-name">Energy Reporter</span>
+                <span class="p-handle">@energydesk</span><span class="p-time">44m</span>
+              </div>
+              <div class="post-text">Independent corroboration: same 2.1M barrel figure reported by 2 unrelated desks. <span class="hashtag">#oil</span></div>
+              <div class="post-meta"><span class="conf likely">likely</span><span>corroborated ×2</span></div>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div data-tabpane="watch" class="hidden">
+        <div class="sec-h">WATCHLIST</div>
+        <div class="watch-item">
+          <div style="display:flex;gap:8px;align-items:baseline">
+            <div class="wline">Possible &#8220;huge announcement&#8221; on chip export controls</div>
+            <span class="conf unconfirmed"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 6 7l6 5-6 5 6 5 6-5-6-5 6-5z"/></svg>unconfirmed</span>
+          </div>
+          <div class="wwhy">sources say, no primary post</div>
+        </div>
+        <div class="watch-item">
+          <div style="display:flex;gap:8px;align-items:baseline">
+            <div class="wline">Unexplained tanker traffic halt near Hormuz</div>
+            <span class="conf unconfirmed"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 6 7l6 5-6 5 6 5 6-5-6-5 6-5z"/></svg>unconfirmed</span>
+          </div>
+          <div class="wwhy">single aggregator, reworded</div>
+        </div>
+      </div>
+
+      <div data-tabpane="noise" class="hidden">
+        <div class="sec-h">NOISE LOG — why items were rejected</div>
+        <div class="noise-item"><span class="muted">Teaser/'incoming' post with no primary evidence.</span><div class="reason">&#8220;HUGE announcement about markets, stay tuned!&#8221;</div></div>
+        <div class="noise-item"><span class="muted">Screenshot-only claim, no first-party post.</span><div class="reason">Reposted image of unrelated chart</div></div>
+        <div class="noise-item"><span class="muted">Anonymous/'sources say' without evidence.</span><div class="reason">&#8220;Word is something big is coming soon&#8221;</div></div>
+      </div>
+    </div>
+
+    <!-- ============ DASHBOARD ============ -->
+    <div class="view hidden" id="view-dashboard">
+      <div class="sec-title">Dashboard</div>
+      <div class="stat-grid">
+        <div class="stat"><div class="n">1,284</div><div class="l">Posts ingested</div></div>
+        <div class="stat"><div class="n">412</div><div class="l">Claims extracted</div></div>
+        <div class="stat"><div class="n">96</div><div class="l">Sources tracked</div></div>
+        <div class="stat"><div class="n">27</div><div class="l">Feedback given</div></div>
+      </div>
+      <div class="panel"><h3>Source trust</h3>
+        <div class="trust-row"><span class="h">@WhiteHouse</span><div class="trust-bar"><span style="width:94%;background:var(--tier-gov)"></span></div><span class="tier">gov·.94</span></div>
+        <div class="trust-row"><span class="h">@energydesk</span><div class="trust-bar"><span style="width:88%;background:var(--tier-journalist)"></span></div><span class="tier">journ·.88</span></div>
+        <div class="trust-row"><span class="h">@OilAnalyst</span><div class="trust-bar"><span style="width:81%;background:var(--tier-expert)"></span></div><span class="tier">expert·.81</span></div>
+        <div class="trust-row"><span class="h">@techmeme</span><div class="trust-bar"><span style="width:60%;background:var(--tier-aggregator)"></span></div><span class="tier">aggr·.60</span></div>
+        <div class="trust-row"><span class="h">@marketwire</span><div class="trust-bar"><span style="width:55%;background:var(--tier-unknown)"></span></div><span class="tier">unknown·.55</span></div>
+        <div class="trust-row"><span class="h">@mysteryblog</span><div class="trust-bar"><span style="width:18%;background:var(--tier-lowtrust)"></span></div><span class="tier">low·.18</span></div>
+      </div>
+      <div class="panel"><h3>Source composition</h3>
+        <div class="legend">
+          <span><i style="background:var(--tier-gov)"></i>gov</span>
+          <span><i style="background:var(--tier-company)"></i>company</span>
+          <span><i style="background:var(--tier-journalist)"></i>journalist</span>
+          <span><i style="background:var(--tier-expert)"></i>expert</span>
+          <span><i style="background:var(--tier-aggregator)"></i>aggregator</span>
+          <span><i style="background:var(--tier-lowtrust)"></i>low-trust</span>
+          <span><i style="background:var(--tier-unknown)"></i>unknown</span>
+        </div>
+        <div class="row-spread"><span class="k">Themes you care about</span><span class="v">energy · oil · ai · sanctions</span></div>
+      </div>
+    </div>
+
+    <!-- ============ SOURCES ============ -->
+    <div class="view hidden" id="view-sources">
+      <div class="sec-title">Sources</div>
+      <div class="panel">
+        <h3>Watched accounts</h3>
+        <div class="row-spread"><span style="display:flex;gap:8px;flex:1"><input class="inp" placeholder="@handle"></span></div>
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+          <span class="pillx">@WhiteHouse<span class="x">✕</span></span>
+          <span class="pillx">@energydesk<span class="x">✕</span></span>
+          <span class="pillx">@OilAnalyst<span class="x">✕</span></span>
+        </div>
+      </div>
+      <div class="panel"><h3>Source trust graph</h3>
+        <div class="trust-row"><span class="h">@WhiteHouse</span><div class="trust-bar"><span style="width:94%;background:var(--tier-gov)"></span></div><span class="tier">gov</span></div>
+        <div class="trust-row"><span class="h">@energydesk</span><div class="trust-bar"><span style="width:88%;background:var(--tier-journalist)"></span></div><span class="tier">journ</span></div>
+        <div class="trust-row"><span class="h">@OilAnalyst</span><div class="trust-bar"><span style="width:81%;background:var(--tier-expert)"></span></div><span class="tier">expert</span></div>
+      </div>
+    </div>
+
+    <!-- ============ SETTINGS ============ -->
+    <div class="view hidden" id="view-settings">
+      <div class="sec-title">Settings</div>
+      <div class="panel">
+        <div class="set-row"><span class="k">RSSHub base</span><span class="v">https://rsshub.app</span></div>
+        <div class="set-row"><span class="k">Poll interval</span><span class="v">300s</span></div>
+        <div class="set-row"><span class="k">Languages</span><span class="v">en</span></div>
+        <div class="set-row"><span class="k">Engine</span><span class="v">Heuristic (auto → Claude)</span></div>
+        <div class="set-row"><span class="k">Watched keywords</span>
+          <span class="tag-select"><span class="tag on">oil</span><span class="tag on">sanctions</span><span class="tag on">iran</span><span class="tag">ai</span></span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ============ GROK RIGHT PANEL ============ -->
+  <aside class="col-right">
+    <div class="panel">
+      <h3>Desk status</h3>
+      <div class="row-spread"><span class="k">Engine</span><span class="v"><span class="dot" style="background:var(--accent);margin-right:4px"></span>Heuristic</span></div>
+      <div class="row-spread"><span class="k">Scheduler</span><span class="v"><span class="dot on" style="margin-right:4px"></span>live</span></div>
+      <div class="row-spread"><span class="k">Last cycle</span><span class="v">01:24 UTC</span></div>
+    </div>
+    <div class="panel">
+      <div class="grok-answer">
+        <div class="grok-av">✳</div>
+        <div class="grok-body">
+          <p><b>Grok:</b> Top signal: <b>new oil sanctions</b> moving energy markets. Confirmed by primary source with document; corroborated ×2 independent desks.</p>
+          <p class="muted" style="font-size:13px">Watchlist holds 2 unconfirmed items. Noise log filtered 3 teasers.</p>
+          <div class="grok-sources">
+            <div class="grok-src"><span class="tierdot" style="background:var(--tier-gov)"></span>@WhiteHouse · gov</div>
+            <div class="grok-src"><span class="tierdot" style="background:var(--tier-expert)"></span>@OilAnalyst · expert</div>
+            <div class="grok-src"><span class="tierdot" style="background:var(--tier-journalist)"></span>@energydesk · journ</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Agents</h3>
+      <div class="agent-row"><span class="an">Intake</span><span class="ad">RSSHub + X search</span></div>
+      <div class="agent-row"><span class="an">Source Mapper</span><span class="ad">trust tiers</span></div>
+      <div class="agent-row"><span class="an">Claim Extractor</span><span class="ad">atomic claims</span></div>
+      <div class="agent-row"><span class="an">Rumor Filter</span><span class="ad">drop + quarantine</span></div>
+      <div class="agent-row"><span class="an">Importance Ranker</span><span class="ad">impact + preference</span></div>
+      <div class="agent-row"><span class="an">Chief of Staff</span><span class="ad">main / watch / noise</span></div>
+      <div class="agent-row"><span class="an">Learning Loop</span><span class="ad">feedback → trust</span></div>
+    </div>
+  </aside>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div id="toast" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;padding:10px 18px;border-radius:var(--radius-pill);font-weight:700;z-index:100;box-shadow:var(--shadow);opacity:0;transition:opacity var(--t-fast);pointer-events:none">ok</div>
+
+<script>
+const views=document.querySelectorAll('.view');
+const navBtns=document.querySelectorAll('.nav button[data-view]');
+const pageTitle=document.getElementById('pageTitle');
+navBtns.forEach(b=>b.addEventListener('click',()=>{
+  navBtns.forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  views.forEach(v=>v.classList.add('hidden'));
+  document.getElementById('view-'+b.dataset.view).classList.remove('hidden');
+  pageTitle.textContent=b.querySelector('.lbl').textContent;
+  closeNav();
+}));
+// tabs within brief
+document.querySelectorAll('.tabs button').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  document.querySelectorAll('[data-tabpane]').forEach(p=>p.classList.add('hidden'));
+  document.querySelector('[data-tabpane="'+t.dataset.tab+'"]').classList.remove('hidden');
+}));
+// theme
+document.querySelectorAll('#themeToggle button').forEach(b=>b.addEventListener('click',()=>{
+  document.documentElement.dataset.theme=b.dataset.t;
+  document.querySelectorAll('#themeToggle button').forEach(x=>x.classList.toggle('on',x===b));
+}));
+// feedback
+function toggleFeedback(id){document.getElementById('p'+id.slice(1)).classList.toggle('feedback-open');}
+function flash(msg){const t=document.getElementById('toast');t.textContent='Feedback: '+msg;t.style.opacity=1;setTimeout(()=>t.style.opacity=0,1500);}
+// run — single affordance (rail CTA)
+document.getElementById('runBtn').onclick=()=>flash('cycle complete');
+// auto
+let auto=false;document.getElementById('autoBtn').onclick=()=>{auto=!auto;document.getElementById('autoDot').classList.toggle('on',auto);flash('scheduler '+(auto?'started':'stopped'));};
+// mobile menu
+const app=document.getElementById('app');
+document.getElementById('menuBtn').onclick=()=>{app.classList.add('nav-open');};
+document.getElementById('scrim').onclick=closeNav;
+function closeNav(){app.classList.remove('nav-open');}
+</script>
+</body>
+</html>

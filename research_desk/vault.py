@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -101,13 +102,24 @@ class Vault:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.briefs_dir = self.data_dir / "briefs"
         self.briefs_dir.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.db_path))
-        self._conn.executescript(_SCHEMA)
+        self._lock = threading.Lock()
+        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        with self._lock:
+            self._conn.executescript(_SCHEMA)
         self._conn.commit()
 
     # -- post ---------------------------------------------------------------
+    def _exec(self, sql: str, params=()) -> None:
+        with self._lock:
+            self._conn.execute(sql, params)
+            self._conn.commit()
+
+    def _query(self, sql: str, params=()):
+        with self._lock:
+            return self._conn.execute(sql, params)
+
     def upsert_post(self, post: Post) -> None:
-        self._conn.execute(
+        self._exec(
             """INSERT OR REPLACE INTO posts VALUES
                (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (post.post_id, post.author, post.author_handle,
@@ -115,20 +127,19 @@ class Vault:
              post.quoted_post.post_id if post.quoted_post else None,
              post.engagement, post.language, post.raw_url,
              post.source_feed, int(post.is_repost), int(post.is_quote)))
-        self._conn.commit()
 
     def post_exists(self, post_id: str) -> bool:
-        cur = self._conn.execute("SELECT 1 FROM posts WHERE post_id=?", (post_id,))
+        cur = self._query("SELECT 1 FROM posts WHERE post_id=?", (post_id,))
         return cur.fetchone() is not None
 
     def recent_claim_texts(self, since_minutes: int = 120) -> list[str]:
-        cur = self._conn.execute(
+        cur = self._query(
             "SELECT text FROM claims WHERE verdict IN ('kept','quarantined')")
         return [r[0] for r in cur.fetchall()]
 
     # -- sources ------------------------------------------------------------
     def get_source(self, handle: str) -> SourceNode:
-        cur = self._conn.execute(
+        cur = self._query(
             "SELECT tier,trust,confirmations,misses,first_seen,last_seen "
             "FROM sources WHERE handle=?", (handle,))
         row = cur.fetchone()
@@ -145,14 +156,13 @@ class Vault:
 
     def upsert_source(self, node: SourceNode) -> None:
         node.last_seen = node.last_seen or utcnow()
-        self._conn.execute(
+        self._exec(
             """INSERT OR REPLACE INTO sources VALUES (?,?,?,?,?,?,?)""",
             (node.handle, node.tier.value, node.trust, node.confirmations,
              node.misses, _iso(node.first_seen), _iso(node.last_seen)))
-        self._conn.commit()
 
     def all_sources(self) -> list[SourceNode]:
-        cur = self._conn.execute("SELECT handle,tier,trust,confirmations,"
+        cur = self._query("SELECT handle,tier,trust,confirmations,"
                                  "misses,first_seen,last_seen FROM sources")
         return [SourceNode(handle=r[0], tier=SourceTier(r[1]), trust=r[2],
                            confirmations=r[3], misses=r[4],
@@ -161,7 +171,7 @@ class Vault:
 
     # -- claims -------------------------------------------------------------
     def upsert_claim(self, claim: Claim) -> None:
-        self._conn.execute(
+        self._exec(
             """INSERT OR REPLACE INTO claims VALUES
                (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (claim.claim_id, claim.post_id, claim.text, claim.said_by,
@@ -170,30 +180,35 @@ class Vault:
              json.dumps(claim.corroborators), claim.confidence.value,
              claim.importance, json.dumps(claim.themes),
              claim.verdict, claim.reason))
-        self._conn.commit()
 
     def claims_by_verdict(self, verdict: str) -> list[Claim]:
-        cur = self._conn.execute(
+        cur = self._query(
             "SELECT * FROM claims WHERE verdict=?", (verdict,))
         return [self._row_to_claim(r) for r in cur.fetchall()]
 
     def all_kept_and_watch(self) -> list[Claim]:
-        cur = self._conn.execute(
+        cur = self._query(
             "SELECT * FROM claims WHERE verdict IN ('kept','quarantined')")
         return [self._row_to_claim(r) for r in cur.fetchall()]
 
     def pending_claims(self) -> list[Claim]:
         """Claims not yet scored by the rumor filter (verdict empty)."""
-        cur = self._conn.execute(
+        cur = self._query(
             "SELECT * FROM claims WHERE verdict='' OR verdict IS NULL")
         return [self._row_to_claim(r) for r in cur.fetchall()]
 
     def all_claims(self) -> list[Claim]:
-        cur = self._conn.execute("SELECT * FROM claims")
+        cur = self._query("SELECT * FROM claims")
         return [self._row_to_claim(r) for r in cur.fetchall()]
 
+    def _all_posts(self) -> list[object]:
+        cur = self._query(
+            "SELECT post_id,author,author_handle,ts,text,language,source_feed "
+            "FROM posts")
+        return cur.fetchall()
+
     def get_claim(self, claim_id: str) -> Optional[Claim]:
-        cur = self._conn.execute(
+        cur = self._query(
             "SELECT * FROM claims WHERE claim_id=?", (claim_id,))
         row = cur.fetchone()
         return self._row_to_claim(row) if row else None
@@ -210,20 +225,18 @@ class Vault:
 
     # -- feedback -----------------------------------------------------------
     def add_feedback(self, fb: Feedback) -> None:
-        self._conn.execute("INSERT INTO feedback VALUES (?,?,?)",
-                           (fb.claim_id, fb.label, _iso(fb.at)))
-        self._conn.commit()
+        self._exec("INSERT INTO feedback VALUES (?,?,?)",
+                   (fb.claim_id, fb.label, _iso(fb.at)))
 
     def all_feedback(self) -> list[Feedback]:
-        cur = self._conn.execute("SELECT claim_id,label,at FROM feedback")
+        cur = self._query("SELECT claim_id,label,at FROM feedback")
         return [Feedback(claim_id=r[0], label=r[1], at=_from_iso(r[2]))
                 for r in cur.fetchall()]
 
     # -- briefs -------------------------------------------------------------
     def save_brief(self, brief: Brief) -> Path:
-        self._conn.execute("INSERT INTO briefs (generated_at,payload) VALUES (?,?)",
-                           (_iso(brief.generated_at), _brief_to_json(brief)))
-        self._conn.commit()
+        self._exec("INSERT INTO briefs (generated_at,payload) VALUES (?,?)",
+                   (_iso(brief.generated_at), _brief_to_json(brief)))
         path = self.briefs_dir / f"brief_{brief.generated_at:%Y%m%d_%H%M%S}.md"
         path.write_text(render_brief_markdown(brief), encoding="utf-8")
         return path

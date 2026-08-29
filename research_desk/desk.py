@@ -15,6 +15,7 @@ from .schema import Post
 from .agents import (
     ClaimExtractorAgent,
     ChiefOfStaffAgent,
+    DiscoveryAgent,
     ImportanceRankerAgent,
     IntakeAgent,
     LearningAgent,
@@ -38,6 +39,7 @@ class ResearchDesk:
         self.ranker = ImportanceRankerAgent(self.config, self.vault,
                                             self.reasoning)
         self.cos = ChiefOfStaffAgent(self.config, self.vault)
+        self.discovery = DiscoveryAgent(self.config, self.vault)
         self.learning = LearningAgent(self.config, self.vault)
         self.learning.reconcile_trust()
 
@@ -49,6 +51,9 @@ class ResearchDesk:
         ranked = self.ranker.run(evaluated)
         posts_by_id = {p.post_id: p for p in posts}
         brief = self.cos.run(ranked, noise, posts_by_id)
+        # Learn new accounts worth covering from what we just read, so the
+        # watchlist grows on its own over time.
+        self.discovery.run(posts, ranked)
         return brief
 
     def feedback(self, claim_id: str, label: str):

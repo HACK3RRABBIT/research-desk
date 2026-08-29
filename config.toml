@@ -41,14 +41,29 @@ ignore_themes = [
 ]
 min_importance = 0.0
 
-# Optional LLM backend. Heuristic engine is used unless provider=anthropic
-# AND ANTHROPIC_API_KEY (env or below) is set.
+# Intelligence engine (always-on). Defaults to an OpenAI-compatible endpoint;
+# set base_url + model + api_key here OR in the webui Settings -> AI Engine
+# screen, which persists them to the gitignored config.local.toml. Leave
+# base_url/model empty until you're ready to wire up a model.
 [llm]
-provider = "anthropic"
-model = "claude-haiku-4-5-20251001"
+provider = "openai"
+base_url = ""
+model = ""
 temperature = 0.0
 max_tokens = 1024
+timeout = 60
 api_key = ""
+
+# Automatic discovery of new accounts (bounded). The desk learns new sources
+# from the posts it reads instead of staying on a fixed watchlist.
+[discovery]
+enabled = true
+max_per_cycle = 5
+max_total = 50
+
+# Scheduler: begin polling automatically once an engine is configured.
+[scheduler]
+autostart = true
 
 # Where state lives (SQLite db + markdown briefs). Relative to cwd.
 data_dir = "data"

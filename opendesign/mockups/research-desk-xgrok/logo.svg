@@ -1,0 +1,22 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="research-desk logo">
+  <defs>
+    <linearGradient id="rdGrad" x1="40" y1="32" x2="216" y2="224" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C9CFF"/>
+      <stop offset="0.55" stop-color="#5566F0"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+  <!-- rounded app tile -->
+  <rect x="16" y="16" width="224" height="224" rx="56" fill="url(#rdGrad)"/>
+  <!-- concentric signal sweep (intelligence / radar) -->
+  <g stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="9" stroke-linecap="round" fill="none">
+    <path d="M128 150 A26 26 0 0 1 154 176" stroke-opacity="0.35"/>
+    <path d="M128 132 A44 44 0 0 1 172 176" stroke-opacity="0.55"/>
+    <path d="M128 114 A62 62 0 0 1 190 176" stroke-opacity="0.8"/>
+  </g>
+  <!-- the 'R' core -->
+  <path d="M96 176 L96 80 L132 80 C150 80 160 92 160 106 C160 119 151 130 138 132 L160 176 L140 176 L120 134 L116 134 L116 176 Z M116 98 L116 116 L130 116 C137 116 140 112 140 106 C140 100 137 98 130 98 Z"
+        fill="#FFFFFF"/>
+  <!-- center node -->
+  <circle cx="128" cy="176" r="9" fill="#FFFFFF"/>
+</svg>

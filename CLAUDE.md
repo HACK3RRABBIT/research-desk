@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A local, real-time **X / Twitter news intelligence system** (v0.1.0). A multi-agent
+A local, real-time **X / Twitter news intelligence system** (v0.1.1). A multi-agent
 "research desk" that ingests X posts via RSSHub (+ optional X API search), filters
 rumors, ranks importance, and writes a markdown brief. Source of truth is X only.
+All agents use an always-on, OpenAI-compatible AI engine configured live from the
+built-in Hermes-styled web UI; the desk serves a React dashboard at `0.0.0.0:8088`.
 
 ## Commands
 
@@ -26,16 +28,25 @@ python -m pytest tests/ -q                       # offline pipeline tests
 
 - `research_desk/config.py` — loads `config.toml` over `CONFIG_DEFAULTS`. RSSHub
   base URL, watched users/lists/keywords, languages, poll interval, preferences.
+  `set_llm()` / `save()` write the engine config to the gitignored
+  `config.local.toml`; `has_llm()` / `needs_setup()` gate the always-on engine.
+- `research_desk/server.py` — FastAPI app serving the Hermes webui (`webui/dist`)
+  and the JSON API: engine config, run cycle, scheduler start/stop, feedback,
+  watched accounts/keywords, agents/sources/themes. Secrets are masked in
+  `/api/state` (never the raw key).
 - `research_desk/schema.py` — dataclasses passed between agents: `Post`, `Claim`,
   `SourceNode`, `Brief`, `Feedback`, enums `SourceTier` / `Confidence`.
 - `research_desk/vault.py` — **single shared store** (SQLite `data/db/vault.db` +
   markdown briefs in `data/briefs/`). All agents read/write this. Key methods:
   `pending_claims()`, `all_claims()`, `get_claim()`, `get_source()`, `upsert_*`.
 - `research_desk/reasoning.py` — **the engine seam.** `Reasoning` ABC with
-  `HeuristicReasoning` (default, pure-Python, offline) and `AnthropicReasoning`
-  (auto-activates when `ANTHROPIC_API_KEY` set + `llm.provider=anthropic`).
-  `get_reasoning(config)` picks. Agents call `reasoning.*` for qualitative judgment
-  and NEVER hard-code it — keep that boundary when editing.
+  `OpenAICompatibleReasoning` (default, plain `requests` to any OpenAI-compatible
+  `/chat/completions`), `AnthropicReasoning` (auto-activates when
+  `ANTHROPIC_API_KEY` set + `llm.provider=anthropic`), and `HeuristicReasoning`
+  (pure-Python, offline fallback). `get_reasoning(config)` picks by provider +
+  `config.has_llm()`. Agents call `reasoning.*` for qualitative judgment and
+  NEVER hard-code it — keep that boundary when editing. Switching engines touches
+  only `reasoning.py` + `config.llm`, never the agents.
 - `research_desk/ingest/rsshub.py` — RSSHub `/twitter/user|list|keyword` adapters,
   Atom/RSS parsing, per-feed retry (failures are logged, not raised).
 - `research_desk/ingest/x_search.py` — optional X API v2 recent-search, silent
