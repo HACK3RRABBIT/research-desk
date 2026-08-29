@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir "fastapi>=0.110" "uvicorn>=0.27" \
     "tomli>=2.0; python_version < '3.11'" "tomli_w>=1.0"
 
 # ---- Frontend: build the SPA into webui/dist (served by the backend) ----
+# webui/package.json carries the build manifest (npm needs it in-context).
 COPY webui ./webui
 RUN cd webui \
     && npm install --no-audit --no-fund \
