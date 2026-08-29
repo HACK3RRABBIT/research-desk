@@ -179,17 +179,21 @@ class HeuristicReasoning(Reasoning):
         text = (post.text or "").strip()
         if not text:
             return []
+        # News RSS items are published articles, not X chatter: a posted article
+        # is inherently primary, evidence-backed, and a specific fact. The
+        # X-tuned signals below would otherwise quarantine every news item.
+        is_news = (post.source_feed or "").startswith("news:")
         cid = f"{post.post_id}:claim0"
         claim = Claim(
             claim_id=cid,
             post_id=post.post_id,
             text=text,
             said_by=source.handle,
-            is_primary_source=source.tier in _PRIMARY_TIERS,
+            is_primary_source=(source.tier in _PRIMARY_TIERS) or is_news,
             has_primary_evidence=bool(_PRIMARY_EVIDENCE.search(text)
-                                      or post.media),
+                                      or post.media or is_news),
             is_forward_looking=bool(_TEASER.search(text)),
-            is_specific_fact=bool(_SPECIFIC.search(text)),
+            is_specific_fact=bool(_SPECIFIC.search(text)) or is_news,
             themes=_theme_hits(text, self._boost + self._ignore),
         )
         return [claim]

@@ -429,6 +429,7 @@ def get_state(lang: str = Query(default="en")):
                 "languages": _desk.config.languages,
                 "watched_users": _desk.config.watched_users,
                 "watched_keywords": _desk.config.watched_keywords,
+                "news_feeds": _desk.config.news_feeds,
             },
             "agents": _agents_payload(),
             "sources": _sources_payload(),

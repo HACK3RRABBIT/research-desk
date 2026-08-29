@@ -12,6 +12,7 @@ from ..schema import Post, utcnow
 from ..vault import Vault
 from ..ingest import rsshub
 from ..ingest.x_search import pull_queries
+from ..ingest.news import pull_feeds
 
 
 class IntakeAgent:
@@ -25,6 +26,10 @@ class IntakeAgent:
             posts.extend(rsshub.pull_all(self.config))
         except Exception as exc:  # defensive: never let intake kill a cycle
             print(f"[intake] rsshub error: {exc}")
+        try:
+            posts.extend(pull_feeds(self.config))
+        except Exception as exc:
+            print(f"[intake] news error: {exc}")
         try:
             posts.extend(pull_queries(self.config))
         except Exception as exc:

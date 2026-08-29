@@ -8,5 +8,5 @@ optionally upgraded to Claude when an API key is present.
 from .desk import ResearchDesk
 from .config import Config, load_config
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 __all__ = ["ResearchDesk", "Config", "load_config"]

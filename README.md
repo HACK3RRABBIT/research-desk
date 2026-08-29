@@ -97,7 +97,48 @@ routes require RSSHub's Twitter radar access; if a route 404s the system logs
 and continues.
 
 > The X web-search route (`x_search_queries`) only runs when you export
-> `X_API_BEARER="<your token>"`. Without it, the desk runs on RSSHub alone.
+> `X_API_BEARER="<your token>"`. Without it, the desk runs on free news RSS
+> feeds (see below) plus RSSHub.
+
+## Engines (where the intelligence comes from)
+
+The desk is **always-on**: every qualitative call (extract claims, judge rumors,
+rank importance) goes through one `Reasoning` engine, configurable live from the
+web UI. Three options:
+
+- **OpenAI-compatible (default)** — any endpoint speaking
+  `POST /v1/chat/completions`. Covers OpenAI, OpenRouter, Groq, vLLM, **and your
+  own offline/local model**.
+- **Anthropic / Claude** — set `provider = anthropic` + an API key.
+- **Heuristic (offline, no model)** — pure-Python rules; works with zero setup
+  but is less nuanced than an LLM.
+
+### Offline / local model (no API key, no cloud)
+
+Point the **OpenAI-compatible** engine at a local server — the desk needs no
+code change, because Ollama, LM Studio, llama.cpp and unsloth GGUF servers all
+speak the same `/v1/chat/completions` protocol:
+
+| Server | Base URL | Notes |
+|--------|----------|-------|
+| **Ollama** | `http://localhost:11434/v1` | `ollama pull qwen3` then use model `qwen3` |
+| **LM Studio** | `http://localhost:1234/v1` | load any GGUF, copy its model name |
+| **llama.cpp / vLLM / unsloth** | `http://localhost:<port>/v1` | serve your `Qwen3-*.GGUF` and use its model id |
+
+In the web UI: set **Provider = OpenAI-compatible**, **Base URL** to the local
+server, **Model** to the loaded model id (e.g. `qwen3.8-27b` for an unsloth
+Qwen3 GGUF), and leave **API key blank**. Save — the desk runs fully offline.
+The "Test connection" button tolerates streaming/SSE proxies and
+reasoning-heavy models that return empty `content`.
+
+## Free news feeds (no X API needed)
+
+X/Twitter's API is paid and the public RSSHub instance blocks Twitter routes, so
+out of the box the desk ingests **standard news RSS/Atom** instead — free, no
+auth, real-time. Configure via `news_feeds` in `config.toml` (seeded with BBC
+World, Hacker News, The Verge, WSJ). Items carry real text, timestamps, and
+source links, so the rumor filter and ranker have genuine input. To add X
+coverage, either self-host RSSHub or set `X_API_BEARER`.
 
 ## Usage
 

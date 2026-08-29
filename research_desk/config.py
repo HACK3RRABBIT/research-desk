@@ -44,6 +44,18 @@ CONFIG_DEFAULTS: dict[str, Any] = {
         "from:???"   # placeholder; see README for enabling real X search
     ],
 
+    # Free, no-auth news RSS/Atom feeds. X/Twitter's API is paid and the public
+    # RSSHub instance blocks Twitter routes, so these give the desk real input
+    # out of the box. Standard RSS/Atom — no key required. Edit to taste.
+    "news_feeds": [
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://feeds.a.dj.com/rss/RSSWorldNews.xml",
+        "https://www.aljazeera.com/xml/rss/all.xml",
+        "https://www.theguardian.com/world/rss",
+        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        "https://www.theverge.com/rss/index.xml",
+    ],
+
     # Preference knobs consumed by the agents (heuristic + learning loop).
     "preferences": {
         "boost_themes": [
@@ -143,6 +155,10 @@ class Config:
     @property
     def x_search_queries(self) -> list[str]:
         return self.raw["x_search_queries"]
+
+    @property
+    def news_feeds(self) -> list[str]:
+        return self.raw.get("news_feeds", [])
 
     @property
     def preferences(self) -> dict[str, Any]:
@@ -262,6 +278,7 @@ class Config:
             "watched_users": self.raw["watched_users"],
             "watched_keywords": self.raw["watched_keywords"],
             "discovered_users": self.raw.get("discovered_users", []),
+            "news_feeds": self.raw.get("news_feeds", []),
             "profile": self.profile,
         }
         path.write_text(tomli_w.dumps(snapshot), encoding="utf-8")

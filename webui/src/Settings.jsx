@@ -111,6 +111,11 @@ export function EngineForm({ llm, onSaved = noop, flash = noop, variant = "setti
         <input className="inp" value={baseUrl} disabled={busy}
           placeholder="https://api.openai.com/v1"
           onChange={(e) => setBaseUrl(e.target.value)} />
+        {!baseUrl && (
+          <div className="body" style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--fg-dim)", marginTop: 6, lineHeight: 1.5 }}>
+            Local models: Ollama → http://localhost:11434/v1 · LM Studio → http://localhost:1234/v1 · vLLM / unsloth GGUF server. No API key needed.
+          </div>
+        )}
       </div>
 
       <div className="field">

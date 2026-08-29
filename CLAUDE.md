@@ -4,9 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A local, real-time **X / Twitter news intelligence system** (v0.1.2). A multi-agent
-"research desk" that ingests X posts via RSSHub (+ optional X API search), filters
-rumors, ranks importance, and writes a markdown brief. Source of truth is X only.
+A local, real-time **news intelligence system** (v0.1.4). A multi-agent
+"research desk" that ingests posts/feeds, filters rumors, ranks importance, and
+writes a markdown brief. Source of truth is **configurable feeds**: free news
+RSS/Atom (`news_feeds`, the default — no X API needed), optional RSSHub Twitter
+routes, and optional X API v2 search (`X_API_BEARER`). X's API is paid and the
+public RSSHub blocks Twitter routes, so `news_feeds` is the out-of-box source.
 All agents use an always-on, OpenAI-compatible AI engine configured live from the
 built-in Hermes-styled web UI; the desk serves a React dashboard at `0.0.0.0:8088`.
 The web UI is **localized (English / فارسی, RTL with Vazirmatn)**, **multi-theme**
@@ -64,6 +67,9 @@ python -m pytest tests/ -q                       # offline pipeline tests
   `pending_claims()`, `all_claims()`, `get_claim()`, `get_source()`, `upsert_*`.
 - `research_desk/ingest/rsshub.py` — RSSHub `/twitter/user|list|keyword` adapters,
   Atom/RSS parsing, per-feed retry (failures are logged, not raised).
+- `research_desk/ingest/news.py` — **free, no-auth news RSS/Atom** intake
+  (`news_feeds` config). Default source of posts (X is paid/blocked). Strips HTML
+  from feed content so the agents judge clean prose. Reuses rsshub's parser.
 - `research_desk/ingest/x_search.py` — optional X API v2 recent-search, silent
   unless `X_API_BEARER` is set.
 - `research_desk/agents/` — the six agents + `learning.py`. Each owns one stage:
